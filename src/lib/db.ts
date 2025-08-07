@@ -10,6 +10,7 @@ export interface Task {
 	createdAt: Date;
 	updatedAt: Date;
 	done: boolean;
+	usageCount: number;
 }
 
 export interface Note {
@@ -37,7 +38,7 @@ export class TaskdownDB extends Dexie {
 		super('TaskdownDatabase');
 
 		this.version(1).stores({
-			tasks: '++id, title, date, time, tags, createdAt, updatedAt, done',
+			tasks: '++id, title, date, time, tags, createdAt, updatedAt, done, usageCount',
 			notes: '++id, title, content, createdAt, updatedAt',
 			embeddings: '++id, taskId, noteId, vector'
 		});
@@ -54,6 +55,7 @@ export class DatabaseService {
 		const now = new Date();
 		return await db.tasks.add({
 			...task,
+			usageCount: task.usageCount || 0,
 			createdAt: now,
 			updatedAt: now
 		});
@@ -84,7 +86,12 @@ export class DatabaseService {
 	async toggleTaskDone(id: number): Promise<number> {
 		const task = await this.getTask(id);
 		if (task) {
-			return await this.updateTask(id, { done: !task.done });
+			const updates: Partial<Task> = { done: !task.done };
+			// Increment usage count when task is completed
+			if (!task.done) {
+				updates.usageCount = (task.usageCount || 0) + 1;
+			}
+			return await this.updateTask(id, updates);
 		}
 		throw new Error('Task not found');
 	}
@@ -164,6 +171,55 @@ export class DatabaseService {
 					note.content.toLowerCase().includes(searchTerm)
 			)
 			.toArray();
+	}
+
+	// Daily Planning specific methods
+	async getUncompletedTasksFromDate(date: Date): Promise<Task[]> {
+		const dateString = date.toISOString().split('T')[0];
+		return await db.tasks.filter((task) => !task.done && task.date === dateString).toArray();
+	}
+
+	async getUncompletedTasksFromPreviousDays(): Promise<Task[]> {
+		const today = new Date();
+		const todayString = today.toISOString().split('T')[0];
+
+		return await db.tasks
+			.filter((task) => !task.done && task.date && task.date < todayString)
+			.toArray();
+	}
+
+	async getTaskSuggestionsByUsage(limit: number = 5): Promise<Task[]> {
+		return await db.tasks
+			.orderBy('usageCount')
+			.reverse()
+			.filter((task) => (task.usageCount || 0) > 0)
+			.limit(limit)
+			.toArray();
+	}
+
+	async rescheduleTaskToToday(id: number): Promise<number> {
+		const today = new Date().toISOString().split('T')[0];
+		const task = await this.getTask(id);
+		if (task) {
+			const updates: Partial<Task> = {
+				date: today,
+				usageCount: (task.usageCount || 0) + 1
+			};
+			return await this.updateTask(id, updates);
+		}
+		throw new Error('Task not found');
+	}
+
+	async rescheduleTaskToDate(id: number, newDate: string): Promise<number> {
+		const task = await this.getTask(id);
+		if (task) {
+			const updates: Partial<Task> = {
+				date: newDate,
+				usageCount: (task.usageCount || 0) + 1
+			};
+			return await this.updateTask(id, updates);
+		}
+		throw new Error('Task not found');
 	}
 }
 
