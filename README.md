@@ -1,4 +1,5 @@
 # Taksdown
+
 A fast SvelteKit project created with skit-fast-cli and comprehensive Coolify integration.
 
 ## Features
@@ -36,6 +37,7 @@ The easiest way to get started is with the included setup script:
 ```
 
 This script will:
+
 - Check for Docker installation
 - Start all required local services
 - Display service URLs and next steps
@@ -49,7 +51,7 @@ This script will:
 
 # Manual service management
 npm run services:start   # Start all local services (DB, Redis, AI services)
-npm run services:stop    # Stop all local services  
+npm run services:stop    # Stop all local services
 npm run services:logs    # View logs from all services
 
 # SvelteKit development
@@ -94,11 +96,13 @@ docker-compose up
 Your project has been automatically configured with a complete infrastructure in Coolify:
 
 ### Services Created
+
 - **SvelteKit App**: Containerized application with health checks and auto-deployment
 - **PocketBase**: Database service with persistent storage and admin interface
 - **Network**: All services connected via dedicated network for inter-service communication
 
 ### Deployment Commands
+
 ```bash
 # Deploy to production
 npm run deploy:prod
@@ -111,19 +115,25 @@ npm run deploy:pr
 ```
 
 ### Health Monitoring
+
 Your application includes a health check endpoint at `/health` that monitors:
+
 - Application status and uptime
 - Service connectivity (database, cache, AI services)
 - Environment configuration
 
 ### Environment Variables
+
 All service connections are pre-configured in your `.env` file:
+
 - `POCKETBASE_URL`: PocketBase admin interface
 
 ## Services
 
 ### Database: pocketbase
+
 PocketBase provides a complete backend with admin UI, real-time subscriptions, and file storage.
+
 - **Development**: Available at http://localhost:8090
 - **Production**: Auto-configured in Coolify with persistent storage
 
@@ -133,7 +143,7 @@ GitHub Actions workflows are included but disabled by default. To enable:
 
 1. Set up repository secrets:
    - `DOCKER_REGISTRY`
-   - `DOCKER_USERNAME` 
+   - `DOCKER_USERNAME`
    - `DOCKER_PASSWORD`
    - `COOLIFY_WEBHOOK_URL`
    - `COOLIFY_DEV_WEBHOOK_URL`
@@ -144,8 +154,9 @@ GitHub Actions workflows are included but disabled by default. To enable:
 2. Edit `.github/workflows/*.yml` and change `if: false` to `if: true`
 
 Features:
+
 - **Production deployment**: Automatic deployment on main branch
-- **Development deployment**: Automatic deployment on dev/develop branches  
+- **Development deployment**: Automatic deployment on dev/develop branches
 - **PR previews**: Temporary deployments for each pull request
 - **Automatic cleanup**: PR deployments removed when PR is closed
 

@@ -4,14 +4,14 @@ services:
   app:
     build: .
     ports:
-      - "3000:3000"
+      - '3000:3000'
     environment:
       - NODE_ENV=development
     depends_on:
   pocketbase:
     image: ghcr.io/muchobien/pocketbase:latest
     ports:
-      - "8090:8090"
+      - '8090:8090'
     volumes:
       - pocketbase_data:/pb_data
       - pocketbase
