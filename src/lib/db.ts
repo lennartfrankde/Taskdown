@@ -11,6 +11,7 @@ export interface Task {
 	updatedAt: Date;
 	done: boolean;
 	usageCount: number;
+	recurrence: 'none' | 'daily' | 'weekly' | 'custom';
 }
 
 export interface Note {
@@ -38,9 +39,33 @@ export class TaskdownDB extends Dexie {
 		super('TaskdownDatabase');
 
 		this.version(1).stores({
-			tasks: '++id, title, date, time, tags, createdAt, updatedAt, done, usageCount',
+			tasks: '++id, title, date, time, tags, createdAt, updatedAt, done',
 			notes: '++id, title, content, createdAt, updatedAt',
 			embeddings: '++id, taskId, noteId, vector'
+		});
+
+		// Add recurrence field in version 2
+		this.version(2).stores({
+			tasks: '++id, title, date, time, tags, createdAt, updatedAt, done, recurrence',
+			notes: '++id, title, content, createdAt, updatedAt',
+			embeddings: '++id, taskId, noteId, vector'
+		}).upgrade(trans => {
+			// Set default recurrence value for existing tasks
+			return trans.table('tasks').toCollection().modify(task => {
+				task.recurrence = 'none';
+			});
+		});
+
+		// Add usageCount field in version 3
+		this.version(3).stores({
+			tasks: '++id, title, date, time, tags, createdAt, updatedAt, done, recurrence, usageCount',
+			notes: '++id, title, content, createdAt, updatedAt',
+			embeddings: '++id, taskId, noteId, vector'
+		}).upgrade(trans => {
+			// Set default usageCount value for existing tasks
+			return trans.table('tasks').toCollection().modify(task => {
+				task.usageCount = 0;
+			});
 		});
 	}
 }
@@ -53,12 +78,14 @@ export class DatabaseService {
 	// Task CRUD operations
 	async createTask(task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>): Promise<number> {
 		const now = new Date();
-		return await db.tasks.add({
+		const taskWithDefaults = {
 			...task,
 			usageCount: task.usageCount || 0,
+			recurrence: task.recurrence || 'none',
 			createdAt: now,
 			updatedAt: now
-		});
+		};
+		return await db.tasks.add(taskWithDefaults) as number;
 	}
 
 	async getTasks(): Promise<Task[]> {
@@ -87,13 +114,68 @@ export class DatabaseService {
 		const task = await this.getTask(id);
 		if (task) {
 			const updates: Partial<Task> = { done: !task.done };
+			
 			// Increment usage count when task is completed
 			if (!task.done) {
 				updates.usageCount = (task.usageCount || 0) + 1;
 			}
-			return await this.updateTask(id, updates);
+			
+			// Mark the current task as done
+			const updateResult = await this.updateTask(id, updates);
+			
+			// If the task is being marked as done and has recurrence, create a new task
+			if (!task.done && task.recurrence !== 'none') {
+				await this.createRecurringTask(task);
+			}
+			
+			return updateResult;
 		}
 		throw new Error('Task not found');
+	}
+
+	private calculateNextDate(currentDate: string | undefined, recurrence: string): string {
+		const today = new Date();
+		let nextDate = new Date(today);
+
+		// If task has a specific date, use it as base, otherwise use today
+		if (currentDate) {
+			const taskDate = new Date(currentDate);
+			if (!isNaN(taskDate.getTime())) {
+				nextDate = new Date(taskDate);
+			}
+		}
+
+		switch (recurrence) {
+			case 'daily':
+				nextDate.setDate(nextDate.getDate() + 1);
+				break;
+			case 'weekly':
+				nextDate.setDate(nextDate.getDate() + 7);
+				break;
+			case 'custom':
+				// For now, default to weekly for custom (can be extended later)
+				nextDate.setDate(nextDate.getDate() + 7);
+				break;
+			default:
+				// Should not happen, but fallback to tomorrow
+				nextDate.setDate(nextDate.getDate() + 1);
+		}
+
+		return nextDate.toISOString().split('T')[0]; // Return YYYY-MM-DD format
+	}
+
+	private async createRecurringTask(originalTask: Task): Promise<void> {
+		const nextDate = this.calculateNextDate(originalTask.date, originalTask.recurrence);
+		
+		await this.createTask({
+			title: originalTask.title,
+			date: nextDate,
+			time: originalTask.time,
+			tags: [...originalTask.tags],
+			recurrence: originalTask.recurrence,
+			usageCount: 0,
+			done: false
+		});
 	}
 
 	// Note CRUD operations
@@ -103,7 +185,7 @@ export class DatabaseService {
 			...note,
 			createdAt: now,
 			updatedAt: now
-		});
+		}) as number;
 	}
 
 	async getNotes(): Promise<Note[]> {
@@ -130,7 +212,7 @@ export class DatabaseService {
 
 	// Embedding CRUD operations
 	async createEmbedding(embedding: Omit<Embedding, 'id'>): Promise<number> {
-		return await db.embeddings.add(embedding);
+		return await db.embeddings.add(embedding) as number;
 	}
 
 	async getEmbeddings(): Promise<Embedding[]> {
