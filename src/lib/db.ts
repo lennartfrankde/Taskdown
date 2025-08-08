@@ -10,8 +10,8 @@ export interface Task {
 	createdAt: Date;
 	updatedAt: Date;
 	done: boolean;
-	usageCount: number;
-	recurrence: 'none' | 'daily' | 'weekly' | 'custom';
+	usageCount?: number;
+	recurrence?: 'none' | 'daily' | 'weekly' | 'custom';
 }
 
 export interface Note {
@@ -124,7 +124,7 @@ export class DatabaseService {
 			const updateResult = await this.updateTask(id, updates);
 			
 			// If the task is being marked as done and has recurrence, create a new task
-			if (!task.done && task.recurrence !== 'none') {
+			if (!task.done && task.recurrence && task.recurrence !== 'none') {
 				await this.createRecurringTask(task);
 			}
 			
@@ -165,14 +165,14 @@ export class DatabaseService {
 	}
 
 	private async createRecurringTask(originalTask: Task): Promise<void> {
-		const nextDate = this.calculateNextDate(originalTask.date, originalTask.recurrence);
+		const nextDate = this.calculateNextDate(originalTask.date, originalTask.recurrence || 'none');
 		
 		await this.createTask({
 			title: originalTask.title,
 			date: nextDate,
 			time: originalTask.time,
 			tags: [...originalTask.tags],
-			recurrence: originalTask.recurrence,
+			recurrence: originalTask.recurrence || 'none',
 			usageCount: 0,
 			done: false
 		});
@@ -266,7 +266,7 @@ export class DatabaseService {
 		const todayString = today.toISOString().split('T')[0];
 
 		return await db.tasks
-			.filter((task) => !task.done && task.date && task.date < todayString)
+			.filter((task) => !task.done && task.date != null && task.date < todayString)
 			.toArray();
 	}
 

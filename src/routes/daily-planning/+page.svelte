@@ -73,7 +73,8 @@
 				tags: suggestionTask.tags,
 				date: today,
 				done: false,
-				usageCount: 0
+				usageCount: 0,
+				recurrence: 'none'
 			});
 			await loadDailyPlanningData();
 		} catch (e) {
