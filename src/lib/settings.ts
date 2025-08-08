@@ -103,6 +103,12 @@ class SettingsService {
 
 	// Persistence
 	private loadSettings(): void {
+		if (typeof localStorage === 'undefined') {
+			// SSR or non-browser environment
+			this.settings = { ...DEFAULT_SETTINGS };
+			return;
+		}
+
 		try {
 			const stored = localStorage.getItem(this.storageKey);
 			if (stored) {
@@ -120,6 +126,11 @@ class SettingsService {
 	}
 
 	private saveSettings(): void {
+		if (typeof localStorage === 'undefined') {
+			// SSR or non-browser environment
+			return;
+		}
+
 		try {
 			localStorage.setItem(this.storageKey, JSON.stringify(this.settings));
 		} catch (error) {
@@ -181,6 +192,11 @@ class SettingsService {
 
 	// Migration helper for existing users
 	migrateFromLegacySync(): void {
+		if (typeof localStorage === 'undefined') {
+			// SSR or non-browser environment
+			return;
+		}
+
 		// If user was using sync before, migrate them to custom backend
 		// This preserves backward compatibility
 		const wasUsingSyncBefore = localStorage.getItem('pocketbase-last-sync');
