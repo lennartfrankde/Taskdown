@@ -8,10 +8,8 @@ const config = {
 	preprocess: vitePreprocess(),
 	kit: {
 		adapter: adapter({
-			// This will create a fallback for SPA-style routing
-			fallback: 'index.html',
-			// Don't prerender API routes
-			strict: false
+			// Node adapter configuration
+			out: 'build'
 		})
 	}
 };
