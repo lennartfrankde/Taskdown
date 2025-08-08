@@ -45,10 +45,14 @@
 		if (mode === 'custom-backend') {
 			// Show custom URL input
 			currentTab = 'plans';
-		} else if (mode === 'official-backend' || mode === 'custom-backend') {
+		} else if (mode === 'official-backend') {
 			// Need authentication for sync modes
 			settingsService.updateSettings({ syncMode: mode });
-			if (mode === 'custom-backend' && customUrl) {
+			currentTab = 'login';
+		} else if (mode === 'custom-backend') {
+			// Need authentication for sync modes with custom backend
+			settingsService.updateSettings({ syncMode: mode });
+			if (customUrl) {
 				settingsService.updateSettings({ customBackendUrl: customUrl });
 			}
 			currentTab = 'login';

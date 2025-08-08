@@ -57,21 +57,28 @@ class AuthService {
 			this.pb = new PocketBase(syncUrl);
 			
 			// Check if user is already authenticated
-			if (this.pb.authStore.isValid) {
+			if (this.pb.authStore.isValid && this.pb.authStore.model) {
+				const model = this.pb.authStore.model as any;
 				this.updateAuthStatus({
 					isAuthenticated: true,
-					user: this.pb.authStore.model as AuthUser,
+					user: {
+						id: model.id,
+						email: model.email,
+						username: model.username,
+						verified: model.verified || false,
+						avatar: model.avatar,
+						created: model.created,
+						updated: model.updated
+					} as AuthUser,
 					loading: false
 				});
 				
 				// Update settings with user info
-				if (this.pb.authStore.model) {
-					settingsService.setUser({
-						id: this.pb.authStore.model.id,
-						email: this.pb.authStore.model.email,
-						username: this.pb.authStore.model.username
-					});
-				}
+				settingsService.setUser({
+					id: model.id,
+					email: model.email,
+					username: model.username
+				});
 			}
 		} else {
 			this.pb = null;
@@ -117,7 +124,16 @@ class AuthService {
 				credentials.password
 			);
 
-			const user = authData.record as AuthUser;
+			const record = authData.record as any;
+			const user: AuthUser = {
+				id: record.id,
+				email: record.email,
+				username: record.username,
+				verified: record.verified || false,
+				avatar: record.avatar,
+				created: record.created,
+				updated: record.updated
+			};
 			
 			this.updateAuthStatus({
 				isAuthenticated: true,
@@ -172,7 +188,16 @@ class AuthService {
 				credentials.password
 			);
 
-			const authUser = authData.record as AuthUser;
+			const record = authData.record as any;
+			const authUser: AuthUser = {
+				id: record.id,
+				email: record.email,
+				username: record.username,
+				verified: record.verified || false,
+				avatar: record.avatar,
+				created: record.created,
+				updated: record.updated
+			};
 			
 			this.updateAuthStatus({
 				isAuthenticated: true,
@@ -252,10 +277,20 @@ class AuthService {
 			throw new Error('User not authenticated');
 		}
 
-		const updatedUser = await this.pb.collection('users').update(this.authStatus.user.id, updates);
+		const updatedRecord = await this.pb.collection('users').update(this.authStatus.user.id, updates);
+		
+		const updatedUser: AuthUser = {
+			id: updatedRecord.id,
+			email: updatedRecord.email,
+			username: updatedRecord.username,
+			verified: (updatedRecord as any).verified || false,
+			avatar: (updatedRecord as any).avatar,
+			created: (updatedRecord as any).created,
+			updated: (updatedRecord as any).updated
+		};
 		
 		this.updateAuthStatus({
-			user: updatedUser as AuthUser
+			user: updatedUser
 		});
 
 		// Update settings
@@ -265,7 +300,7 @@ class AuthService {
 			username: updatedUser.username
 		});
 
-		return updatedUser as AuthUser;
+		return updatedUser;
 	}
 
 	// Utility methods
