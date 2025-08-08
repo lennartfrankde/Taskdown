@@ -32,4 +32,5 @@ jobs:
 
       - name: Deploy to Coolify
         run: |
-          curl -X POST "${{ secrets.COOLIFY_WEBHOOK_URL }}"
+          curl -X POST "${{ secrets.COOLIFY_WEBHOOK_URL }}" \
+            -H "Authorization: Bearer ${{ secrets.COOLIFY_TOKEN }}"
