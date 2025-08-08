@@ -15,10 +15,8 @@ jobs:
       COOLIFY_API_URL: ${{ secrets.COOLIFY_API_URL }}
       COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
       COOLIFY_PROJECT_ID: ${{ secrets.COOLIFY_PROJECT_ID }}
+      COOLIFY_PREVIEW_ENVIRONMENT_ID: ${{ secrets.COOLIFY_PREVIEW_ENVIRONMENT_ID }}
       REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
-      PR_NUMBER: ${{ github.event.number }}
-      PREVIEW_NAME: taskdown-pr-${{ github.event.number }}
-      IMAGE: ${{ secrets.DOCKER_REGISTRY }}/taskdown:pr-${{ github.event.number }}
 
     steps:
       - uses: actions/checkout@v4
@@ -38,77 +36,63 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ env.IMAGE }}
+          tags: ${{ secrets.DOCKER_REGISTRY }}/taskdown:pr-${{ github.event.number }}
 
-      - name: Create or update Coolify preview deployment
-        shell: bash
+      - name: Deploy or update preview service in Coolify
         run: |
           set -euo pipefail
 
-          echo "Fetching existing dockerimage applications for project ${COOLIFY_PROJECT_ID}..."
+          PR_NUMBER=${{ github.event.number }}
+          PREVIEW_NAME="taskdown-pr-${PR_NUMBER}"
+          IMAGE="${REGISTRY}/taskdown:pr-${PR_NUMBER}"
 
-          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
-            -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
-            "${COOLIFY_API_URL}/api/v1/projects/${COOLIFY_PROJECT_ID}/dockerimage-applications")
+          echo "Fetching existing services..."
+          SERVICES=$(curl -s -H "Authorization: Bearer $COOLIFY_TOKEN" \
+            "$COOLIFY_API_URL/api/v1/projects/$COOLIFY_PROJECT_ID/services")
 
-          HTTP_STATUS=$(echo "$RESPONSE" | tr -d '\r' | sed -n 's/.*HTTP_STATUS:\([0-9]*\)$/\1/p')
-          BODY=$(echo "$RESPONSE" | sed -e 's/HTTP_STATUS:.*//g')
+          echo "Services response:"
+          echo "$SERVICES"
 
-          echo "HTTP Status: $HTTP_STATUS"
-          echo "Response Body:"
-          echo "$BODY"
+          SERVICE_ID=$(echo "$SERVICES" | jq -r --arg name "$PREVIEW_NAME" 'if type=="array" then .[] | select(.name==$name) | .id else empty end')
 
-          if [ "$HTTP_STATUS" -ne 200 ]; then
-            echo "❌ Failed to fetch dockerimage applications from Coolify API."
-            exit 1
-          fi
-
-          APP_ID=$(echo "$BODY" | jq -r --arg name "$PREVIEW_NAME" '.[] | select(.name==$name) | .id // empty')
-
-          if [ -z "$APP_ID" ]; then
-            echo "App not found, creating new preview application..."
-
-            CREATE_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "${COOLIFY_API_URL}/api/v1/projects/${COOLIFY_PROJECT_ID}/dockerimage-applications" \
-              -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+          if [ -n "$SERVICE_ID" ]; then
+            echo "Updating existing Coolify preview service: $PREVIEW_NAME (ID: $SERVICE_ID)"
+            UPDATE_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X PATCH "$COOLIFY_API_URL/api/v1/services/$SERVICE_ID" \
+              -H "Authorization: Bearer $COOLIFY_TOKEN" \
               -H "Content-Type: application/json" \
-              -d "{\"name\":\"${PREVIEW_NAME}\",\"image\":\"${IMAGE}\",\"preview\":true,\"forcePullImage\":true}")
+              -d "{\"image\":\"${IMAGE}\",\"preview\":true,\"forcePullImage\":true,\"environmentId\":\"$COOLIFY_PREVIEW_ENVIRONMENT_ID\"}")
 
-            CREATE_STATUS=$(echo "$CREATE_RESPONSE" | tr -d '\r' | sed -n 's/.*HTTP_STATUS:\([0-9]*\)$/\1/p')
-            CREATE_BODY=$(echo "$CREATE_RESPONSE" | sed -e 's/HTTP_STATUS:.*//g')
-
-            echo "Create HTTP Status: $CREATE_STATUS"
-            echo "Create Response Body:"
-            echo "$CREATE_BODY"
-
-            if [ "$CREATE_STATUS" -ne 201 ]; then
-              echo "❌ Failed to create Coolify preview application."
-              exit 1
-            fi
-
-            echo "✅ Created preview app: $PREVIEW_NAME"
-
-          else
-            echo "App found with ID $APP_ID, updating preview application..."
-
-            UPDATE_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X PATCH "${COOLIFY_API_URL}/api/v1/dockerimage-applications/${APP_ID}" \
-              -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
-              -H "Content-Type: application/json" \
-              -d "{\"image\":\"${IMAGE}\",\"preview\":true,\"forcePullImage\":true}")
-
-            UPDATE_STATUS=$(echo "$UPDATE_RESPONSE" | tr -d '\r' | sed -n 's/.*HTTP_STATUS:\([0-9]*\)$/\1/p')
-            UPDATE_BODY=$(echo "$UPDATE_RESPONSE" | sed -e 's/HTTP_STATUS:.*//g')
+            UPDATE_STATUS=$(echo "$UPDATE_RESPONSE" | sed -n 's/.*HTTP_STATUS:\([0-9]*\)$/\1/p')
+            UPDATE_BODY=$(echo "$UPDATE_RESPONSE" | sed -e 's/HTTP_STATUS:.*//')
 
             echo "Update HTTP Status: $UPDATE_STATUS"
             echo "Update Response Body:"
             echo "$UPDATE_BODY"
 
             if [ "$UPDATE_STATUS" -ne 200 ]; then
-              echo "❌ Failed to update Coolify preview application."
+              echo "Error updating Coolify preview service"
               exit 1
             fi
+          else
+            echo "Creating new Coolify preview service: $PREVIEW_NAME"
+            CREATE_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "$COOLIFY_API_URL/api/v1/projects/$COOLIFY_PROJECT_ID/services" \
+              -H "Authorization: Bearer $COOLIFY_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"name\":\"${PREVIEW_NAME}\",\"image\":\"${IMAGE}\",\"type\":\"service\",\"preview\":true,\"forcePullImage\":true,\"environmentId\":\"$COOLIFY_PREVIEW_ENVIRONMENT_ID\"}")
 
-            echo "✅ Updated preview app: $PREVIEW_NAME"
+            CREATE_STATUS=$(echo "$CREATE_RESPONSE" | sed -n 's/.*HTTP_STATUS:\([0-9]*\)$/\1/p')
+            CREATE_BODY=$(echo "$CREATE_RESPONSE" | sed -e 's/HTTP_STATUS:.*//')
+
+            echo "Create HTTP Status: $CREATE_STATUS"
+            echo "Create Response Body:"
+            echo "$CREATE_BODY"
+
+            if [ "$CREATE_STATUS" -ne 201 ]; then
+              echo "Error creating Coolify preview service"
+              exit 1
+            fi
           fi
+        shell: bash
 
       - name: Comment PR with preview URL
         uses: actions/github-script@v7
@@ -128,58 +112,26 @@ jobs:
     env:
       COOLIFY_API_URL: ${{ secrets.COOLIFY_API_URL }}
       COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
-      PR_NUMBER: ${{ github.event.number }}
-      PREVIEW_NAME: taskdown-pr-${{ github.event.number }}
 
     steps:
-      - name: Find and delete Coolify preview deployment
-        shell: bash
+      - name: Delete PR deployment in Coolify
         run: |
           set -euo pipefail
+          PR_NUMBER=${{ github.event.number }}
+          PREVIEW_NAME="taskdown-pr-${PR_NUMBER}"
 
-          echo "Fetching dockerimage applications to find preview app..."
+          # Find the service id first
+          SERVICES=$(curl -s -H "Authorization: Bearer $COOLIFY_TOKEN" "$COOLIFY_API_URL/api/v1/projects/${{ secrets.COOLIFY_PROJECT_ID }}/services")
+          SERVICE_ID=$(echo "$SERVICES" | jq -r --arg name "$PREVIEW_NAME" 'if type=="array" then .[] | select(.name==$name) | .id else empty end')
 
-          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" \
-            -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
-            "${COOLIFY_API_URL}/api/v1/projects/${COOLIFY_PROJECT_ID}/dockerimage-applications")
-
-          HTTP_STATUS=$(echo "$RESPONSE" | tr -d '\r' | sed -n 's/.*HTTP_STATUS:\([0-9]*\)$/\1/p')
-          BODY=$(echo "$RESPONSE" | sed -e 's/HTTP_STATUS:.*//g')
-
-          echo "HTTP Status: $HTTP_STATUS"
-          echo "Response Body:"
-          echo "$BODY"
-
-          if [ "$HTTP_STATUS" -ne 200 ]; then
-            echo "❌ Failed to fetch dockerimage applications."
-            exit 1
+          if [ -n "$SERVICE_ID" ]; then
+            echo "Deleting Coolify preview service: $PREVIEW_NAME (ID: $SERVICE_ID)"
+            curl -s -X DELETE "$COOLIFY_API_URL/api/v1/services/$SERVICE_ID" \
+              -H "Authorization: Bearer $COOLIFY_TOKEN"
+          else
+            echo "No preview service found to delete."
           fi
-
-          APP_ID=$(echo "$BODY" | jq -r --arg name "$PREVIEW_NAME" '.[] | select(.name==$name) | .id // empty')
-
-          if [ -z "$APP_ID" ]; then
-            echo "No preview app found for PR #${PR_NUMBER}, nothing to delete."
-            exit 0
-          fi
-
-          echo "Deleting preview app with ID $APP_ID..."
-
-          DELETE_RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X DELETE "${COOLIFY_API_URL}/api/v1/dockerimage-applications/${APP_ID}" \
-            -H "Authorization: Bearer ${COOLIFY_TOKEN}")
-
-          DELETE_STATUS=$(echo "$DELETE_RESPONSE" | tr -d '\r' | sed -n 's/.*HTTP_STATUS:\([0-9]*\)$/\1/p')
-          DELETE_BODY=$(echo "$DELETE_RESPONSE" | sed -e 's/HTTP_STATUS:.*//g')
-
-          echo "Delete HTTP Status: $DELETE_STATUS"
-          echo "Delete Response Body:"
-          echo "$DELETE_BODY"
-
-          if [ "$DELETE_STATUS" -ne 204 ]; then
-            echo "❌ Failed to delete Coolify preview application."
-            exit 1
-          fi
-
-          echo "✅ Deleted preview app: $PREVIEW_NAME"
+        shell: bash
 
       - name: Comment PR about cleanup
         uses: actions/github-script@v7
@@ -189,5 +141,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `🧹 PR preview deployment has been cleaned up.`
+              body: '🧹 PR preview deployment has been cleaned up.'
             })
