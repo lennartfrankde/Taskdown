@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { dbService, type Task } from '$lib/db';
+	import QuickAdd from '$lib/components/QuickAdd.svelte';
 
 	let allTasks = $state<Task[]>([]);
 	let openTasks = $state<Task[]>([]);
@@ -57,6 +58,11 @@
 	onMount(() => {
 		loadTasks();
 	});
+
+	// Function to refresh tasks when new tasks are added
+	async function refreshTasks() {
+		await loadTasks();
+	}
 </script>
 
 <div class="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
@@ -65,6 +71,11 @@
 			<h1 class="text-3xl font-bold text-gray-900 sm:text-4xl">Taskdown</h1>
 			<p class="mt-2 text-gray-600">Manage your tasks efficiently</p>
 		</header>
+
+		<!-- QuickAdd Component -->
+		<div class="mb-8">
+			<QuickAdd onTaskAdded={refreshTasks} />
+		</div>
 
 		<main>
 			{#if error}
