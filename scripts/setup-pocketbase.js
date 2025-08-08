@@ -106,6 +106,18 @@ async function setupPocketBaseCollections() {
 						maxSelect: 1,
 						values: ['none', 'daily', 'weekly', 'custom']
 					}
+				},
+				{
+					name: 'user',
+					type: 'relation',
+					required: true,
+					options: {
+						collectionId: '_pb_users_auth_',
+						cascadeDelete: true,
+						minSelect: null,
+						maxSelect: 1,
+						displayFields: null
+					}
 				}
 			],
 			listRule: '',
@@ -129,6 +141,18 @@ async function setupPocketBaseCollections() {
 					type: 'editor',
 					required: false,
 					options: {}
+				},
+				{
+					name: 'user',
+					type: 'relation',
+					required: true,
+					options: {
+						collectionId: '_pb_users_auth_',
+						cascadeDelete: true,
+						minSelect: null,
+						maxSelect: 1,
+						displayFields: null
+					}
 				}
 			],
 			listRule: '',
@@ -138,6 +162,24 @@ async function setupPocketBaseCollections() {
 			deleteRule: ''
 		}
 	];
+
+	// Authentication rules to be applied after collection creation
+	const authRules = {
+		tasks: {
+			listRule: '@request.auth.id != "" && user = @request.auth.id',
+			viewRule: '@request.auth.id != "" && user = @request.auth.id',
+			createRule: '@request.auth.id != ""',
+			updateRule: '@request.auth.id != "" && user = @request.auth.id',
+			deleteRule: '@request.auth.id != "" && user = @request.auth.id'
+		},
+		notes: {
+			listRule: '@request.auth.id != "" && user = @request.auth.id',
+			viewRule: '@request.auth.id != "" && user = @request.auth.id',
+			createRule: '@request.auth.id != ""',
+			updateRule: '@request.auth.id != "" && user = @request.auth.id',
+			deleteRule: '@request.auth.id != "" && user = @request.auth.id'
+		}
+	};
 
 	// Create collections
 	for (const collectionData of collections) {
@@ -155,11 +197,29 @@ async function setupPocketBaseCollections() {
 			console.log(`✅ Created collection '${collectionData.name}'`);
 		} catch (error) {
 			console.error(`❌ Failed to create collection '${collectionData.name}':`, error.message);
+			if (error.data) {
+				console.error('Error details:', JSON.stringify(error.data, null, 2));
+			}
 
 			if (error.message.includes('unauthorized')) {
 				console.log('\n💡 Authentication required. Please provide admin credentials:');
 				console.log(`   node scripts/setup-pocketbase.js ${pbUrl} admin@example.com your-password`);
 				console.log(`   Or log in manually at ${pbUrl}/_/ and run this script again.`);
+			}
+		}
+	}
+
+	// Apply authentication rules
+	console.log('\n🔐 Setting up authentication rules...');
+	for (const [collectionName, rules] of Object.entries(authRules)) {
+		try {
+			const collection = await pb.collections.getOne(collectionName);
+			await pb.collections.update(collection.id, rules);
+			console.log(`✅ Applied auth rules to '${collectionName}' collection`);
+		} catch (error) {
+			console.error(`❌ Failed to apply auth rules to '${collectionName}':`, error.message);
+			if (error.data) {
+				console.error('Error details:', JSON.stringify(error.data, null, 2));
 			}
 		}
 	}
