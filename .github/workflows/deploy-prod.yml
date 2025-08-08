@@ -8,7 +8,7 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    if: false # Disabled by default
+    if: true # Disabled by default
 
     steps:
       - uses: actions/checkout@v4
