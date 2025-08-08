@@ -3,6 +3,7 @@
 	import { dbService, type Task } from '$lib/db';
 	import QuickAdd from '$lib/components/QuickAdd.svelte';
 	import TaskList from '$lib/components/TaskList.svelte';
+	import SyncStatus from '$lib/components/SyncStatus.svelte';
 
 	let tasks: Task[] = [];
 	let dbStatus = 'Loading...';
@@ -59,6 +60,9 @@
 		</header>
 
 		<div class="space-y-8">
+			<!-- Sync Status -->
+			<SyncStatus />
+
 			<!-- Status indicator -->
 			<div class="rounded-md bg-green-50 p-4">
 				<div class="flex">

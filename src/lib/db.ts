@@ -12,6 +12,10 @@ export interface Task {
 	done: boolean;
 	usageCount?: number;
 	recurrence?: 'none' | 'daily' | 'weekly' | 'custom';
+	// Sync fields
+	remoteId?: string;
+	synced?: boolean;
+	lastSyncAt?: Date;
 }
 
 export interface Note {
@@ -20,6 +24,10 @@ export interface Note {
 	content: string;
 	createdAt: Date;
 	updatedAt: Date;
+	// Sync fields
+	remoteId?: string;
+	synced?: boolean;
+	lastSyncAt?: Date;
 }
 
 export interface Embedding {
@@ -66,6 +74,25 @@ export class TaskdownDB extends Dexie {
 			return trans.table('tasks').toCollection().modify(task => {
 				task.usageCount = 0;
 			});
+		});
+
+		// Add sync fields in version 4
+		this.version(4).stores({
+			tasks: '++id, title, date, time, tags, createdAt, updatedAt, done, recurrence, usageCount, remoteId, synced, lastSyncAt',
+			notes: '++id, title, content, createdAt, updatedAt, remoteId, synced, lastSyncAt',
+			embeddings: '++id, taskId, noteId, vector'
+		}).upgrade(trans => {
+			// Set default sync values for existing tasks and notes
+			return Promise.all([
+				trans.table('tasks').toCollection().modify(task => {
+					task.synced = false;
+					task.lastSyncAt = null;
+				}),
+				trans.table('notes').toCollection().modify(note => {
+					note.synced = false;
+					note.lastSyncAt = null;
+				})
+			]);
 		});
 	}
 }
