@@ -146,10 +146,16 @@ export class SyncService {
 				throw new Error('PocketBase server not available');
 			}
 
-			// Sync tasks and notes
-			await Promise.all([
-				this.syncTasks(),
-				this.syncNotes()
+			// Try to sync tasks and notes, handle missing collections gracefully
+			await Promise.allSettled([
+				this.syncTasks().catch(error => {
+					console.warn('Tasks sync failed (collections may not exist):', error);
+					// Don't throw - let sync continue
+				}),
+				this.syncNotes().catch(error => {
+					console.warn('Notes sync failed (collections may not exist):', error);
+					// Don't throw - let sync continue
+				})
 			]);
 
 			this.updateStatus({ 
