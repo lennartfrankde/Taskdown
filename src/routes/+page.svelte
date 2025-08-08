@@ -3,127 +3,165 @@
 	import { dbService, type Task } from '$lib/db';
 	import QuickAdd from '$lib/components/QuickAdd.svelte';
 
-	let tasks: Task[] = $state([]);
-	let dbStatus = $state('Loading...');
+	let allTasks = $state<Task[]>([]);
+	let openTasks = $state<Task[]>([]);
+	let isLoading = $state(true);
+	let error = $state<string | null>(null);
 
-	onMount(async () => {
-		try {
-			// Fetch all tasks
-			tasks = await dbService.getTasks();
-			dbStatus = `Database working! Found ${tasks.length} task(s)`;
-		} catch (error) {
-			dbStatus = `Database error: ${error}`;
+	function getTaskDateTime(task: Task): Date {
+		if (task.date) {
+			const dateStr = task.time ? `${task.date} ${task.time}` : task.date;
+			const parsed = new Date(dateStr);
+			return isNaN(parsed.getTime()) ? task.createdAt : parsed;
 		}
-	});
+		return task.createdAt;
+	}
 
-	// Function to refresh tasks list
-	async function refreshTasks() {
+	function updateOpenTasks() {
+		const filtered = allTasks.filter((task) => !task.done);
+		const sorted = filtered.sort((a, b) => {
+			// Sort by date and time if available, otherwise by creation date
+			const aDateTime = getTaskDateTime(a);
+			const bDateTime = getTaskDateTime(b);
+			return aDateTime.getTime() - bDateTime.getTime();
+		});
+		openTasks = sorted;
+	}
+
+	async function loadTasks() {
 		try {
-			tasks = await dbService.getTasks();
-		} catch (error) {
-			console.error('Error refreshing tasks:', error);
+			isLoading = true;
+			error = null;
+			allTasks = await dbService.getTasks();
+			updateOpenTasks();
+		} catch (err) {
+			error = `Error loading tasks: ${err}`;
+			console.error('Failed to load tasks:', err);
+		} finally {
+			isLoading = false;
 		}
 	}
 
-	// Auto-refresh tasks when page gains focus to catch new tasks
+	async function toggleTask(task: Task) {
+		if (!task.id) return;
+
+		try {
+			await dbService.toggleTaskDone(task.id);
+			// Reload tasks to reflect the change
+			await loadTasks();
+		} catch (err) {
+			error = `Error updating task: ${err}`;
+			console.error('Failed to toggle task:', err);
+		}
+	}
+
 	onMount(() => {
-		const handleFocus = () => refreshTasks();
-		window.addEventListener('focus', handleFocus);
-
-		// Set up periodic refresh every 5 seconds
-		const interval = setInterval(refreshTasks, 5000);
-
-		return () => {
-			window.removeEventListener('focus', handleFocus);
-			clearInterval(interval);
-		};
+		loadTasks();
 	});
+
+	// Function to refresh tasks when new tasks are added
+	async function refreshTasks() {
+		await loadTasks();
+	}
 </script>
 
-<div class="min-h-screen bg-gray-50 px-4 py-8 dark:bg-gray-900">
-	<div class="mx-auto max-w-4xl space-y-8">
-		<!-- Header -->
-		<div class="text-center">
-			<h1 class="text-3xl font-bold text-gray-900 dark:text-gray-100">Taskdown</h1>
-			<p class="mt-2 text-gray-600 dark:text-gray-400">Your task management application</p>
-		</div>
+<div class="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
+	<div class="mx-auto max-w-2xl">
+		<header class="mb-8">
+			<h1 class="text-3xl font-bold text-gray-900 sm:text-4xl">Taskdown</h1>
+			<p class="mt-2 text-gray-600">Manage your tasks efficiently</p>
+		</header>
 
 		<!-- QuickAdd Component -->
-		<QuickAdd />
-
-		<!-- Database Status -->
-		<div
-			class="rounded-lg border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800"
-		>
-			<h2 class="mb-4 text-xl font-semibold text-gray-900 dark:text-gray-100">Database Status</h2>
-			<p class="text-gray-700 dark:text-gray-300">{dbStatus}</p>
+		<div class="mb-8">
+			<QuickAdd onTaskAdded={refreshTasks} />
 		</div>
 
-		<!-- Tasks List -->
-		{#if tasks.length > 0}
-			<div
-				class="rounded-lg border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-700 dark:bg-gray-800"
-			>
-				<h2 class="mb-4 text-xl font-semibold text-gray-900 dark:text-gray-100">Recent Tasks</h2>
-				<div class="space-y-3">
-					{#each tasks as task (task.id)}
-						<div
-							class="rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-600 dark:bg-gray-700"
-						>
-							<div class="flex items-start justify-between">
-								<div class="flex-1">
-									<h3 class="font-medium text-gray-900 dark:text-gray-100">{task.title}</h3>
-									<div class="mt-2 space-y-1 text-sm text-gray-600 dark:text-gray-400">
-										{#if task.date || task.time}
-											<div class="flex items-center space-x-4">
-												{#if task.date}
-													<span class="inline-flex items-center">
-														📅 {new Date(task.date).toLocaleDateString()}
-													</span>
-												{/if}
-												{#if task.time}
-													<span class="inline-flex items-center">
-														🕐 {task.time}
-													</span>
-												{/if}
-											</div>
-										{/if}
-										{#if task.tags.length > 0}
-											<div class="flex flex-wrap gap-1">
-												{#each task.tags as tag (tag)}
-													<span
-														class="inline-flex items-center rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
+		<main>
+			{#if error}
+				<div class="mb-6 rounded-md bg-red-50 p-4">
+					<div class="flex">
+						<div class="ml-3">
+							<h3 class="text-sm font-medium text-red-800">Error</h3>
+							<div class="mt-2 text-sm text-red-700">
+								<p>{error}</p>
+							</div>
+						</div>
+					</div>
+				</div>
+			{/if}
+
+			{#if isLoading}
+				<div class="flex items-center justify-center py-8">
+					<div class="text-gray-500">Loading tasks...</div>
+				</div>
+			{:else if openTasks.length === 0}
+				<div class="rounded-lg border-2 border-dashed border-gray-300 px-6 py-8 text-center">
+					<h3 class="text-lg font-medium text-gray-900">No open tasks</h3>
+					<p class="mt-2 text-sm text-gray-500">All tasks are completed or none exist yet.</p>
+				</div>
+			{:else}
+				<div class="space-y-4">
+					<h2 class="text-xl font-semibold text-gray-900">
+						Open Tasks ({openTasks.length})
+					</h2>
+
+					<ul class="divide-y divide-gray-200 rounded-lg bg-white shadow">
+						{#each openTasks as task (task.id)}
+							<li class="px-4 py-4 sm:px-6">
+								<div class="flex items-start space-x-3">
+									<div class="flex-shrink-0">
+										<input
+											type="checkbox"
+											checked={task.done}
+											onchange={() => toggleTask(task)}
+											class="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+											aria-label="Mark task as complete"
+										/>
+									</div>
+									<div class="min-w-0 flex-1">
+										<div class="text-sm font-medium text-gray-900">
+											{task.title}
+										</div>
+										<div class="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-500">
+											{#if task.date || task.time}
+												<span class="flex items-center">
+													<svg
+														class="mr-1 h-4 w-4"
+														fill="none"
+														stroke="currentColor"
+														viewBox="0 0 24 24"
 													>
-														#{tag}
-													</span>
-												{/each}
-											</div>
-										{/if}
-										<div class="text-xs text-gray-500 dark:text-gray-500">
-											Created: {task.createdAt.toLocaleString()}
+														<path
+															stroke-linecap="round"
+															stroke-linejoin="round"
+															stroke-width="2"
+															d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+														></path>
+													</svg>
+													{task.date ? task.date : ''}
+													{task.time ? ` ${task.time}` : ''}
+												</span>
+											{/if}
+											{#if task.tags.length > 0}
+												<div class="flex flex-wrap gap-1">
+													{#each task.tags as tag, index (index)}
+														<span
+															class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800"
+														>
+															{tag}
+														</span>
+													{/each}
+												</div>
+											{/if}
 										</div>
 									</div>
 								</div>
-								<div class="ml-4">
-									{#if task.done}
-										<span
-											class="inline-flex items-center rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-300"
-										>
-											✓ Done
-										</span>
-									{:else}
-										<span
-											class="inline-flex items-center rounded-full bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300"
-										>
-											⏳ Pending
-										</span>
-									{/if}
-								</div>
-							</div>
-						</div>
-					{/each}
+							</li>
+						{/each}
+					</ul>
 				</div>
-			</div>
-		{/if}
+			{/if}
+		</main>
 	</div>
 </div>

@@ -2,6 +2,13 @@
 	import { dbService } from '$lib/db';
 	import { parseQuickAdd, validateQuickAdd } from '$lib/utils/quickadd-parser';
 
+	// Props
+	interface Props {
+		onTaskAdded?: () => Promise<void>;
+	}
+
+	let { onTaskAdded }: Props = $props();
+
 	// Component state
 	let inputValue = $state('');
 	let isLoading = $state(false);
@@ -55,6 +62,11 @@
 
 			// Clear input after successful creation
 			inputValue = '';
+
+			// Call the callback if provided
+			if (onTaskAdded) {
+				await onTaskAdded();
+			}
 
 			// Clear success message after a short delay
 			setTimeout(() => {
