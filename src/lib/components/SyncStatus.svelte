@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { syncService, type SyncStatus } from '$lib/sync';
+	import { settingsService } from '$lib/settings';
+	import { authService } from '$lib/auth';
 
 	let status: SyncStatus = $state(syncService.getStatus());
 	let showDetails = $state(false);
@@ -11,8 +13,10 @@
 			status = newStatus;
 		});
 
-		// Start auto-sync (every 5 minutes)
-		syncService.startAutoSync(5);
+		// Start auto-sync if enabled
+		if (status.isEnabled) {
+			syncService.startAutoSync(5);
+		}
 
 		return () => {
 			unsubscribe();
@@ -46,6 +50,7 @@
 	}
 
 	function getStatusColor(): string {
+		if (!status.isEnabled) return 'text-gray-400';
 		if (status.syncInProgress) return 'text-blue-600';
 		if (status.error) return 'text-red-600';
 		if (status.isOnline) return 'text-green-600';
@@ -53,6 +58,7 @@
 	}
 
 	function getStatusIcon(): string {
+		if (!status.isEnabled) return '📱';
 		if (status.syncInProgress) return '🔄';
 		if (status.error) return '❌';
 		if (status.isOnline) return '✅';
@@ -60,10 +66,18 @@
 	}
 
 	function getStatusText(): string {
+		if (!status.isEnabled) return 'Nur lokal';
 		if (status.syncInProgress) return 'Synchronisiert...';
 		if (status.error) return 'Sync-Fehler';
+		if (status.requiresAuth && !authService.getAuthStatus().isAuthenticated) return 'Anmeldung erforderlich';
 		if (status.isOnline) return 'Online';
 		return 'Offline';
+	}
+
+	function getSyncModeInfo(): string {
+		const settings = settingsService.getSettings();
+		const plans = settingsService.getSyncPlans();
+		return plans[settings.syncMode].name;
 	}
 </script>
 
@@ -73,14 +87,20 @@
 			<span class="text-lg">{getStatusIcon()}</span>
 			<div>
 				<div class="flex items-center space-x-2">
-					<span class="font-medium text-gray-900">PocketBase Sync</span>
+					<span class="font-medium text-gray-900">{getSyncModeInfo()}</span>
 					<span class={`text-sm ${getStatusColor()}`}>
 						{getStatusText()}
 					</span>
 				</div>
-				<div class="text-sm text-gray-500">
-					Letzter Sync: {formatLastSync(status.lastSync)}
-				</div>
+				{#if status.isEnabled}
+					<div class="text-sm text-gray-500">
+						Letzter Sync: {formatLastSync(status.lastSync)}
+					</div>
+				{:else}
+					<div class="text-sm text-gray-500">
+						Alle Daten bleiben lokal gespeichert
+					</div>
+				{/if}
 			</div>
 		</div>
 
@@ -93,14 +113,16 @@
 				{showDetails ? 'Weniger' : 'Details'}
 			</button>
 
-			<button
-				type="button"
-				onclick={handleManualSync}
-				disabled={status.syncInProgress}
-				class="rounded bg-blue-600 px-3 py-1 text-sm text-white transition-colors hover:bg-blue-700 disabled:bg-gray-400"
-			>
-				{status.syncInProgress ? 'Läuft...' : 'Sync'}
-			</button>
+			{#if status.isEnabled}
+				<button
+					type="button"
+					onclick={handleManualSync}
+					disabled={status.syncInProgress || !status.isOnline}
+					class="rounded bg-blue-600 px-3 py-1 text-sm text-white transition-colors hover:bg-blue-700 disabled:bg-gray-400"
+				>
+					{status.syncInProgress ? 'Läuft...' : 'Sync'}
+				</button>
+			{/if}
 		</div>
 	</div>
 
@@ -108,15 +130,36 @@
 		<div class="mt-4 border-t border-gray-100 pt-4">
 			<div class="grid grid-cols-2 gap-4 text-sm">
 				<div>
-					<span class="font-medium text-gray-700">Status:</span>
-					<span class={getStatusColor()}>
-						{status.isOnline ? 'Verbunden' : 'Nicht verbunden'}
-					</span>
+					<span class="font-medium text-gray-700">Modus:</span>
+					<span class="text-gray-600">{getSyncModeInfo()}</span>
 				</div>
-				<div>
-					<span class="font-medium text-gray-700">Auto-Sync:</span>
-					<span class="text-gray-600">Alle 5 Minuten</span>
-				</div>
+				{#if status.isEnabled}
+					<div>
+						<span class="font-medium text-gray-700">Status:</span>
+						<span class={getStatusColor()}>
+							{status.isOnline ? 'Verbunden' : 'Nicht verbunden'}
+						</span>
+					</div>
+					<div>
+						<span class="font-medium text-gray-700">Auto-Sync:</span>
+						<span class="text-gray-600">Alle 5 Minuten</span>
+					</div>
+					{#if status.requiresAuth}
+						<div>
+							<span class="font-medium text-gray-700">Benutzer:</span>
+							<span class="text-gray-600">
+								{authService.getAuthStatus().user?.email || 'Nicht angemeldet'}
+							</span>
+						</div>
+					{/if}
+				{:else}
+					<div class="col-span-2">
+						<span class="font-medium text-gray-700">Hinweis:</span>
+						<span class="text-gray-600">
+							Daten werden nur auf diesem Gerät gespeichert
+						</span>
+					</div>
+				{/if}
 			</div>
 
 			{#if status.error}
@@ -128,13 +171,23 @@
 				</div>
 			{/if}
 
-			<div class="mt-3 text-xs text-gray-500">
-				<p>
-					• Lokale Änderungen werden automatisch mit PocketBase synchronisiert<br />
-					• Bei Konflikten werden lokale Änderungen bevorzugt<br />
-					• Sync läuft auch im Hintergrund alle 5 Minuten
-				</p>
-			</div>
+			{#if status.isEnabled}
+				<div class="mt-3 text-xs text-gray-500">
+					<p>
+						• Lokale Änderungen werden automatisch synchronisiert<br />
+						• Bei Konflikten werden lokale Änderungen bevorzugt<br />
+						• Sync läuft auch im Hintergrund alle 5 Minuten
+					</p>
+				</div>
+			{:else}
+				<div class="mt-3 text-xs text-gray-500">
+					<p>
+						• Maximaler Datenschutz und Offline-Funktionalität<br />
+						• Keine Internetverbindung erforderlich<br />
+						• Alle Daten bleiben auf Ihrem Gerät
+					</p>
+				</div>
+			{/if}
 		</div>
 	{/if}
 </div>

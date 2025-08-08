@@ -1,6 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import favicon from '$lib/assets/favicon.svg';
+	import SyncSettings from '$lib/components/SyncSettings.svelte';
 
 	let { children } = $props();
 </script>
@@ -16,11 +17,12 @@
 				<h1 class="text-xl font-bold text-gray-900">
 					<a href="/" class="transition-colors hover:text-blue-600">Taskdown</a>
 				</h1>
-				<div class="flex gap-4">
+				<div class="flex items-center gap-4">
 					<a href="/" class="text-gray-600 transition-colors hover:text-blue-600"> Home </a>
 					<a href="/daily-planning" class="text-gray-600 transition-colors hover:text-blue-600">
 						Tagesplanung
 					</a>
+					<SyncSettings />
 				</div>
 			</div>
 		</div>

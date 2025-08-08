@@ -1,7 +1,8 @@
 import PocketBase from 'pocketbase';
 import type { Task, Note } from './db';
 import { dbService } from './db';
-import { config } from './config';
+import { settingsService } from './settings';
+import { authService } from './auth';
 
 // PocketBase record interfaces
 export interface PBTask {
@@ -30,23 +31,75 @@ export interface SyncStatus {
 	lastSync?: Date;
 	syncInProgress: boolean;
 	error?: string;
+	isEnabled: boolean;
+	requiresAuth: boolean;
 }
 
 export class SyncService {
-	private pb: PocketBase;
+	private pb: PocketBase | null = null;
 	private syncInterval?: number;
 	private status: SyncStatus = {
 		isOnline: false,
-		syncInProgress: false
+		syncInProgress: false,
+		isEnabled: false,
+		requiresAuth: false
 	};
 	private listeners: ((status: SyncStatus) => void)[] = [];
 
-	constructor(url?: string) {
-		// Use provided URL or configuration default
-		const pocketbaseUrl = url || config.pocketbaseUrl;
+	constructor() {
+		// Initialize based on settings
+		this.initializeSync();
+		
+		// Listen for settings changes
+		settingsService.onSettingsChange(() => {
+			this.initializeSync();
+		});
 
-		this.pb = new PocketBase(pocketbaseUrl);
-		this.checkConnection();
+		// Listen for auth changes
+		authService.onAuthChange(() => {
+			this.updateSyncStatus();
+		});
+	}
+
+	private initializeSync(): void {
+		const settings = settingsService.getSettings();
+		const syncUrl = settingsService.getSyncUrl();
+
+		if (settings.syncMode === 'local-only') {
+			this.pb = null;
+			this.updateStatus({
+				isEnabled: false,
+				requiresAuth: false,
+				isOnline: false
+			});
+			this.stopAutoSync();
+		} else if (syncUrl) {
+			this.pb = authService.getPocketBase();
+			this.updateStatus({
+				isEnabled: true,
+				requiresAuth: true
+			});
+			this.checkConnection();
+		}
+	}
+
+	private updateSyncStatus(): void {
+		const authStatus = authService.getAuthStatus();
+		const settings = settingsService.getSettings();
+		
+		if (settings.syncMode === 'local-only') {
+			this.updateStatus({
+				isEnabled: false,
+				requiresAuth: false,
+				isOnline: false
+			});
+		} else {
+			this.updateStatus({
+				isEnabled: true,
+				requiresAuth: true,
+				isOnline: authStatus.isAuthenticated && this.status.isOnline
+			});
+		}
 	}
 
 	// Status management
@@ -70,6 +123,17 @@ export class SyncService {
 	}
 
 	private async checkConnection(): Promise<boolean> {
+		if (!this.pb) {
+			this.updateStatus({ isOnline: false, error: 'Sync deaktiviert' });
+			return false;
+		}
+
+		const authStatus = authService.getAuthStatus();
+		if (!authStatus.isAuthenticated) {
+			this.updateStatus({ isOnline: false, error: 'Anmeldung erforderlich' });
+			return false;
+		}
+
 		try {
 			await this.pb.health.check();
 			this.updateStatus({ isOnline: true, error: undefined });
@@ -77,7 +141,7 @@ export class SyncService {
 		} catch (error) {
 			this.updateStatus({
 				isOnline: false,
-				error: 'PocketBase connection failed'
+				error: 'PocketBase-Verbindung fehlgeschlagen'
 			});
 			return false;
 		}
@@ -142,12 +206,26 @@ export class SyncService {
 			return;
 		}
 
+		const settings = settingsService.getSettings();
+		if (settings.syncMode === 'local-only') {
+			return; // No sync needed
+		}
+
+		if (!this.pb) {
+			throw new Error('Sync nicht verfügbar - PocketBase nicht initialisiert');
+		}
+
+		const authStatus = authService.getAuthStatus();
+		if (!authStatus.isAuthenticated) {
+			throw new Error('Anmeldung erforderlich für Synchronisierung');
+		}
+
 		try {
 			this.updateStatus({ syncInProgress: true, error: undefined });
 
 			const isOnline = await this.checkConnection();
 			if (!isOnline) {
-				throw new Error('PocketBase server not available');
+				throw new Error('PocketBase-Server nicht verfügbar');
 			}
 
 			// Try to sync tasks and notes, handle missing collections gracefully
@@ -168,7 +246,7 @@ export class SyncService {
 			});
 		} catch (error) {
 			this.updateStatus({
-				error: error instanceof Error ? error.message : 'Sync failed'
+				error: error instanceof Error ? error.message : 'Sync fehlgeschlagen'
 			});
 			throw error;
 		} finally {
@@ -177,10 +255,12 @@ export class SyncService {
 	}
 
 	private async syncTasks(): Promise<void> {
+		if (!this.pb) return;
+
 		// Get all local tasks
 		const localTasks = await dbService.getTasks();
 
-		// Get all remote tasks
+		// Get all remote tasks (user-specific if authenticated)
 		const remoteTasks = await this.pb.collection('tasks').getFullList<PBTask>();
 
 		// Create maps for easier lookup
@@ -253,10 +333,12 @@ export class SyncService {
 	}
 
 	private async syncNotes(): Promise<void> {
+		if (!this.pb) return;
+
 		// Get all local notes
 		const localNotes = await dbService.getNotes();
 
-		// Get all remote notes
+		// Get all remote notes (user-specific if authenticated)
 		const remoteNotes = await this.pb.collection('notes').getFullList<PBNote>();
 
 		// Create maps for easier lookup
@@ -345,6 +427,12 @@ export class SyncService {
 	// Automatic sync
 	startAutoSync(intervalMinutes: number = 5): void {
 		this.stopAutoSync();
+		
+		const settings = settingsService.getSettings();
+		if (settings.syncMode === 'local-only') {
+			return; // No auto-sync for local-only mode
+		}
+		
 		this.syncInterval = window.setInterval(
 			async () => {
 				try {
