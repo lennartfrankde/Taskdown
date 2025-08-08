@@ -2,166 +2,84 @@
 	import { onMount } from 'svelte';
 	import { dbService, type Task } from '$lib/db';
 	import QuickAdd from '$lib/components/QuickAdd.svelte';
+	import TaskList from '$lib/components/TaskList.svelte';
 
-	let allTasks = $state<Task[]>([]);
-	let openTasks = $state<Task[]>([]);
-	let isLoading = $state(true);
-	let error = $state<string | null>(null);
-
-	function getTaskDateTime(task: Task): Date {
-		if (task.date) {
-			const dateStr = task.time ? `${task.date} ${task.time}` : task.date;
-			const parsed = new Date(dateStr);
-			return isNaN(parsed.getTime()) ? task.createdAt : parsed;
-		}
-		return task.createdAt;
-	}
-
-	function updateOpenTasks() {
-		const filtered = allTasks.filter((task) => !task.done);
-		const sorted = filtered.sort((a, b) => {
-			// Sort by date and time if available, otherwise by creation date
-			const aDateTime = getTaskDateTime(a);
-			const bDateTime = getTaskDateTime(b);
-			return aDateTime.getTime() - bDateTime.getTime();
-		});
-		openTasks = sorted;
-	}
+	let tasks: Task[] = [];
+	let dbStatus = 'Loading...';
+	let isInitialized = false;
 
 	async function loadTasks() {
 		try {
-			isLoading = true;
-			error = null;
-			allTasks = await dbService.getTasks();
-			updateOpenTasks();
-		} catch (err) {
-			error = `Error loading tasks: ${err}`;
-			console.error('Failed to load tasks:', err);
-		} finally {
-			isLoading = false;
+			tasks = await dbService.getTasks();
+		} catch (error) {
+			console.error('Error loading tasks:', error);
 		}
 	}
 
-	async function toggleTask(task: Task) {
-		if (!task.id) return;
-
+	onMount(async () => {
 		try {
-			await dbService.toggleTaskDone(task.id);
-			// Reload tasks to reflect the change
-			await loadTasks();
-		} catch (err) {
-			error = `Error updating task: ${err}`;
-			console.error('Failed to toggle task:', err);
-		}
-	}
+			// Check if we already have tasks, if not create a sample
+			const existingTasks = await dbService.getTasks();
+			if (existingTasks.length === 0) {
+				await dbService.createTask({
+					title: 'Welcome to Taskdown! This is a sample task.',
+					tags: ['sample'],
+					done: false,
+					recurrence: 'none'
+				});
+			}
 
-	onMount(() => {
-		loadTasks();
+			await loadTasks();
+			dbStatus = `Database working! Found ${tasks.length} task(s)`;
+			isInitialized = true;
+		} catch (error) {
+			dbStatus = `Database error: ${error}`;
+		}
 	});
 
-	// Function to refresh tasks when new tasks are added
-	async function refreshTasks() {
-		await loadTasks();
+	function handleTaskCreated() {
+		loadTasks();
+	}
+
+	function handleTaskUpdated() {
+		loadTasks();
 	}
 </script>
 
-<div class="min-h-screen bg-gray-50 px-4 py-6 sm:px-6 lg:px-8">
-	<div class="mx-auto max-w-2xl">
+<div class="min-h-screen bg-gray-50 p-4">
+	<div class="mx-auto max-w-4xl">
 		<header class="mb-8">
-			<h1 class="text-3xl font-bold text-gray-900 sm:text-4xl">Taskdown</h1>
-			<p class="mt-2 text-gray-600">Manage your tasks efficiently</p>
+			<h1 class="text-3xl font-bold text-gray-900">Taskdown</h1>
+			<p class="mt-2 text-gray-600">Your task management application with recurring tasks</p>
 		</header>
 
-		<!-- QuickAdd Component -->
-		<div class="mb-8">
-			<QuickAdd onTaskAdded={refreshTasks} />
-		</div>
-
-		<main>
-			{#if error}
-				<div class="mb-6 rounded-md bg-red-50 p-4">
-					<div class="flex">
-						<div class="ml-3">
-							<h3 class="text-sm font-medium text-red-800">Error</h3>
-							<div class="mt-2 text-sm text-red-700">
-								<p>{error}</p>
-							</div>
-						</div>
+		<div class="space-y-8">
+			<!-- Status indicator -->
+			<div class="rounded-md bg-green-50 p-4">
+				<div class="flex">
+					<div class="flex-shrink-0">
+						<svg class="h-5 w-5 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+							<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+						</svg>
+					</div>
+					<div class="ml-3">
+						<p class="text-sm font-medium text-green-800">{dbStatus}</p>
 					</div>
 				</div>
+			</div>
+
+			<!-- Quick Add Form -->
+			{#if isInitialized}
+				<QuickAdd onTaskCreated={handleTaskCreated} />
 			{/if}
 
-			{#if isLoading}
-				<div class="flex items-center justify-center py-8">
-					<div class="text-gray-500">Loading tasks...</div>
-				</div>
-			{:else if openTasks.length === 0}
-				<div class="rounded-lg border-2 border-dashed border-gray-300 px-6 py-8 text-center">
-					<h3 class="text-lg font-medium text-gray-900">No open tasks</h3>
-					<p class="mt-2 text-sm text-gray-500">All tasks are completed or none exist yet.</p>
-				</div>
-			{:else}
-				<div class="space-y-4">
-					<h2 class="text-xl font-semibold text-gray-900">
-						Open Tasks ({openTasks.length})
-					</h2>
-
-					<ul class="divide-y divide-gray-200 rounded-lg bg-white shadow">
-						{#each openTasks as task (task.id)}
-							<li class="px-4 py-4 sm:px-6">
-								<div class="flex items-start space-x-3">
-									<div class="flex-shrink-0">
-										<input
-											type="checkbox"
-											checked={task.done}
-											onchange={() => toggleTask(task)}
-											class="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-											aria-label="Mark task as complete"
-										/>
-									</div>
-									<div class="min-w-0 flex-1">
-										<div class="text-sm font-medium text-gray-900">
-											{task.title}
-										</div>
-										<div class="mt-1 flex flex-wrap items-center gap-2 text-sm text-gray-500">
-											{#if task.date || task.time}
-												<span class="flex items-center">
-													<svg
-														class="mr-1 h-4 w-4"
-														fill="none"
-														stroke="currentColor"
-														viewBox="0 0 24 24"
-													>
-														<path
-															stroke-linecap="round"
-															stroke-linejoin="round"
-															stroke-width="2"
-															d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
-														></path>
-													</svg>
-													{task.date ? task.date : ''}
-													{task.time ? ` ${task.time}` : ''}
-												</span>
-											{/if}
-											{#if task.tags.length > 0}
-												<div class="flex flex-wrap gap-1">
-													{#each task.tags as tag, index (index)}
-														<span
-															class="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800"
-														>
-															{tag}
-														</span>
-													{/each}
-												</div>
-											{/if}
-										</div>
-									</div>
-								</div>
-							</li>
-						{/each}
-					</ul>
+			<!-- Task List -->
+			{#if isInitialized}
+				<div>
+					<h2 class="mb-4 text-xl font-semibold text-gray-900">Your Tasks</h2>
+					<TaskList {tasks} on:taskUpdated={handleTaskUpdated} />
 				</div>
 			{/if}
-		</main>
+		</div>
 	</div>
 </div>

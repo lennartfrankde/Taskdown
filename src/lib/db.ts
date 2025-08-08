@@ -10,6 +10,7 @@ export interface Task {
 	createdAt: Date;
 	updatedAt: Date;
 	done: boolean;
+	recurrence: 'none' | 'daily' | 'weekly' | 'custom';
 }
 
 export interface Note {
@@ -41,6 +42,18 @@ export class TaskdownDB extends Dexie {
 			notes: '++id, title, content, createdAt, updatedAt',
 			embeddings: '++id, taskId, noteId, vector'
 		});
+
+		// Add recurrence field in version 2
+		this.version(2).stores({
+			tasks: '++id, title, date, time, tags, createdAt, updatedAt, done, recurrence',
+			notes: '++id, title, content, createdAt, updatedAt',
+			embeddings: '++id, taskId, noteId, vector'
+		}).upgrade(trans => {
+			// Set default recurrence value for existing tasks
+			return trans.table('tasks').toCollection().modify(task => {
+				task.recurrence = 'none';
+			});
+		});
 	}
 }
 
@@ -52,11 +65,13 @@ export class DatabaseService {
 	// Task CRUD operations
 	async createTask(task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>): Promise<number> {
 		const now = new Date();
-		return await db.tasks.add({
+		const taskWithDefaults = {
 			...task,
+			recurrence: task.recurrence || 'none',
 			createdAt: now,
 			updatedAt: now
-		});
+		};
+		return await db.tasks.add(taskWithDefaults) as number;
 	}
 
 	async getTasks(): Promise<Task[]> {
@@ -84,9 +99,61 @@ export class DatabaseService {
 	async toggleTaskDone(id: number): Promise<number> {
 		const task = await this.getTask(id);
 		if (task) {
-			return await this.updateTask(id, { done: !task.done });
+			// Mark the current task as done
+			const updateResult = await this.updateTask(id, { done: !task.done });
+			
+			// If the task is being marked as done and has recurrence, create a new task
+			if (!task.done && task.recurrence !== 'none') {
+				await this.createRecurringTask(task);
+			}
+			
+			return updateResult;
 		}
 		throw new Error('Task not found');
+	}
+
+	private calculateNextDate(currentDate: string | undefined, recurrence: string): string {
+		const today = new Date();
+		let nextDate = new Date(today);
+
+		// If task has a specific date, use it as base, otherwise use today
+		if (currentDate) {
+			const taskDate = new Date(currentDate);
+			if (!isNaN(taskDate.getTime())) {
+				nextDate = new Date(taskDate);
+			}
+		}
+
+		switch (recurrence) {
+			case 'daily':
+				nextDate.setDate(nextDate.getDate() + 1);
+				break;
+			case 'weekly':
+				nextDate.setDate(nextDate.getDate() + 7);
+				break;
+			case 'custom':
+				// For now, default to weekly for custom (can be extended later)
+				nextDate.setDate(nextDate.getDate() + 7);
+				break;
+			default:
+				// Should not happen, but fallback to tomorrow
+				nextDate.setDate(nextDate.getDate() + 1);
+		}
+
+		return nextDate.toISOString().split('T')[0]; // Return YYYY-MM-DD format
+	}
+
+	private async createRecurringTask(originalTask: Task): Promise<void> {
+		const nextDate = this.calculateNextDate(originalTask.date, originalTask.recurrence);
+		
+		await this.createTask({
+			title: originalTask.title,
+			date: nextDate,
+			time: originalTask.time,
+			tags: [...originalTask.tags],
+			recurrence: originalTask.recurrence,
+			done: false
+		});
 	}
 
 	// Note CRUD operations
@@ -96,7 +163,7 @@ export class DatabaseService {
 			...note,
 			createdAt: now,
 			updatedAt: now
-		});
+		}) as number;
 	}
 
 	async getNotes(): Promise<Note[]> {
@@ -123,7 +190,7 @@ export class DatabaseService {
 
 	// Embedding CRUD operations
 	async createEmbedding(embedding: Omit<Embedding, 'id'>): Promise<number> {
-		return await db.embeddings.add(embedding);
+		return await db.embeddings.add(embedding) as number;
 	}
 
 	async getEmbeddings(): Promise<Embedding[]> {
