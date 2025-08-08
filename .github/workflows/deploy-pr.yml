@@ -2,17 +2,15 @@ name: PR Preview Deployment
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, closed]
-
-permissions:
-  contents: read
-  pull-requests: write
-  issues: write
+    types: [opened, synchronize, reopened]
+  pull_request_target:
+    types: [closed]
 
 jobs:
   deploy-preview:
     if: github.event.action != 'closed'
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -26,14 +24,14 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and push PR image
+      - name: Build and push PR Docker image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: ${{ secrets.DOCKER_REGISTRY }}/taskdown:pr-${{ github.event.number }}
 
-      - name: Deploy Preview on Coolify
+      - name: Deploy preview on Coolify
         env:
           COOLIFY_API_URL: ${{ secrets.COOLIFY_API_URL }}
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
@@ -47,8 +45,13 @@ jobs:
           IMAGE_TAG="pr-${PR_NUMBER}"
           IMAGE="${REGISTRY}/taskdown:${IMAGE_TAG}"
 
-          echo "Fetching existing services..."
-          SERVICES=$(curl -s -H "Authorization: Bearer ${COOLIFY_TOKEN}" "${COOLIFY_API_URL}/api/v1/services")
+          echo "Fetching existing services for project ${COOLIFY_PROJECT_ID}..."
+          SERVICES=$(curl -s -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+            "${COOLIFY_API_URL}/api/v1/projects/${COOLIFY_PROJECT_ID}/services")
+
+          echo "Response from Coolify:"
+          echo "$SERVICES"
+
           SERVICE_ID=$(echo "$SERVICES" | jq -r --arg name "$PREVIEW_NAME" '.[] | select(.name==$name) | .id // empty')
 
           if [ -z "$SERVICE_ID" ]; then
@@ -79,32 +82,33 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `🚀 Preview deployment created! Available at: https://taskdown-pr-${context.issue.number}.your-domain.com`
+              body: `🚀 Preview deployment created! Access it at: https://pr-${context.issue.number}.serverfrank.de`
             })
 
   cleanup-preview:
     if: github.event.action == 'closed'
     runs-on: ubuntu-latest
+
     steps:
-      - name: Delete PR deployment service in Coolify
+      - name: Delete Coolify preview service
         env:
           COOLIFY_API_URL: ${{ secrets.COOLIFY_API_URL }}
           COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
           PR_NUMBER: ${{ github.event.number }}
         run: |
           set -euo pipefail
-          PREVIEW_NAME="taskdown-pr-${PR_NUMBER}"
 
-          echo "Fetching existing services..."
+          SERVICE_NAME="taskdown-pr-${PR_NUMBER}"
+
+          echo "Fetching service ID for $SERVICE_NAME"
           SERVICES=$(curl -s -H "Authorization: Bearer ${COOLIFY_TOKEN}" "${COOLIFY_API_URL}/api/v1/services")
-          SERVICE_ID=$(echo "$SERVICES" | jq -r --arg name "$PREVIEW_NAME" '.[] | select(.name==$name) | .id // empty')
+          SERVICE_ID=$(echo "$SERVICES" | jq -r --arg name "$SERVICE_NAME" '.[] | select(.name==$name) | .id // empty')
 
           if [ -n "$SERVICE_ID" ]; then
-            echo "Deleting Coolify preview service: $PREVIEW_NAME"
-            curl -s -X DELETE "${COOLIFY_API_URL}/api/v1/services/${SERVICE_ID}" \
-              -H "Authorization: Bearer ${COOLIFY_TOKEN}"
+            echo "Deleting Coolify preview service: $SERVICE_NAME (ID: $SERVICE_ID)"
+            curl -s -X DELETE "${COOLIFY_API_URL}/api/v1/services/${SERVICE_ID}" -H "Authorization: Bearer ${COOLIFY_TOKEN}"
           else
-            echo "No Coolify preview service found to delete for: $PREVIEW_NAME"
+            echo "No Coolify preview service found for $SERVICE_NAME. Nothing to delete."
           fi
 
       - name: Comment PR about cleanup
@@ -115,5 +119,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '🧹 PR preview deployment has been cleaned up.'
+              body: '🧹 Preview deployment cleaned up after PR closure.'
             })
