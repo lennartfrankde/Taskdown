@@ -54,6 +54,9 @@ npm run services:start   # Start all local services (DB, Redis, AI services)
 npm run services:stop    # Stop all local services
 npm run services:logs    # View logs from all services
 
+# PocketBase setup (after starting services)
+npm run pocketbase:setup # Set up required collections for sync
+
 # SvelteKit development
 npm run dev              # Start development server
 npm run build            # Build for production
@@ -70,6 +73,15 @@ When you run `npm run services:start`, the following services will be available:
 - **PocketBase**: http://localhost:8090 (Database + Admin UI)
 
 Your SvelteKit app will automatically connect to these services using the environment variables in `.env`.
+
+### PocketBase Setup
+
+After starting the services, you need to set up PocketBase collections for sync functionality:
+
+1. **Manual Setup**: Go to http://localhost:8090/\_/ and create the required collections
+2. **Automated Setup**: Run `npm run pocketbase:setup` (requires admin credentials)
+
+For detailed setup instructions, see [docs/POCKETBASE_SETUP.md](docs/POCKETBASE_SETUP.md).
 
 ## Tauri Desktop/Mobile App
 
@@ -126,7 +138,13 @@ Your application includes a health check endpoint at `/health` that monitors:
 
 All service connections are pre-configured in your `.env` file:
 
-- `POCKETBASE_URL`: PocketBase admin interface
+- `VITE_POCKETBASE_URL`: PocketBase server URL (defaults to http://localhost:8090 in development)
+
+For production deployment, set:
+
+```env
+VITE_POCKETBASE_URL=https://your-pocketbase-server.com
+```
 
 ## Services
 

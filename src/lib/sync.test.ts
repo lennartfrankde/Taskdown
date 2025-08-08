@@ -55,11 +55,11 @@ describe('SyncService', () => {
 
 		// Should have at least two updates: sync start and sync end
 		expect(statusUpdates.length).toBeGreaterThanOrEqual(2);
-		
+
 		// Check that sync started
-		const startUpdate = statusUpdates.find(s => s.syncInProgress === true);
+		const startUpdate = statusUpdates.find((s) => s.syncInProgress === true);
 		expect(startUpdate).toBeDefined();
-		
+
 		// Check final status
 		const finalStatus = syncService.getStatus();
 		expect(finalStatus.syncInProgress).toBe(false);
@@ -69,7 +69,7 @@ describe('SyncService', () => {
 	it('should handle connection errors gracefully', async () => {
 		// Mock a connection failure
 		const syncServiceWithError = new SyncService('http://invalid-url');
-		
+
 		const status = syncServiceWithError.getStatus();
 		expect(status.isOnline).toBe(false);
 	});
@@ -121,7 +121,7 @@ describe('SyncService', () => {
 		// Unsubscribe and trigger another update
 		unsubscribe();
 		listener.mockClear();
-		
+
 		syncServiceAny.updateStatus({ isOnline: false });
 		expect(listener).not.toHaveBeenCalled();
 	});

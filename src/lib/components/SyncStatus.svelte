@@ -30,17 +30,17 @@
 
 	function formatLastSync(date?: Date): string {
 		if (!date) return 'Nie';
-		
+
 		const now = new Date();
 		const diffMs = now.getTime() - date.getTime();
 		const diffMin = Math.floor(diffMs / (1000 * 60));
-		
+
 		if (diffMin < 1) return 'Gerade eben';
 		if (diffMin < 60) return `vor ${diffMin} Min`;
-		
+
 		const diffHour = Math.floor(diffMin / 60);
 		if (diffHour < 24) return `vor ${diffHour} Std`;
-		
+
 		const diffDay = Math.floor(diffHour / 24);
 		return `vor ${diffDay} Tag${diffDay > 1 ? 'en' : ''}`;
 	}
@@ -83,16 +83,16 @@
 				</div>
 			</div>
 		</div>
-		
+
 		<div class="flex items-center space-x-2">
 			<button
 				type="button"
-				onclick={() => showDetails = !showDetails}
+				onclick={() => (showDetails = !showDetails)}
 				class="text-sm text-gray-500 hover:text-gray-700"
 			>
 				{showDetails ? 'Weniger' : 'Details'}
 			</button>
-			
+
 			<button
 				type="button"
 				onclick={handleManualSync}
@@ -122,15 +122,16 @@
 			{#if status.error}
 				<div class="mt-3 rounded-md bg-red-50 p-3">
 					<div class="text-sm text-red-800">
-						<strong>Fehler:</strong> {status.error}
+						<strong>Fehler:</strong>
+						{status.error}
 					</div>
 				</div>
 			{/if}
 
 			<div class="mt-3 text-xs text-gray-500">
 				<p>
-					• Lokale Änderungen werden automatisch mit PocketBase synchronisiert<br>
-					• Bei Konflikten werden lokale Änderungen bevorzugt<br>
+					• Lokale Änderungen werden automatisch mit PocketBase synchronisiert<br />
+					• Bei Konflikten werden lokale Änderungen bevorzugt<br />
 					• Sync läuft auch im Hintergrund alle 5 Minuten
 				</p>
 			</div>

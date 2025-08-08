@@ -21,16 +21,19 @@
 
 	async function handleSubmit(event: Event) {
 		event.preventDefault();
-		
+
 		if (!title.trim()) return;
-		
+
 		isLoading = true;
 		try {
 			const taskId = await dbService.createTask({
 				title: title.trim(),
 				date: date || undefined,
 				time: time || undefined,
-				tags: tags.split(',').map(tag => tag.trim()).filter(tag => tag),
+				tags: tags
+					.split(',')
+					.map((tag) => tag.trim())
+					.filter((tag) => tag),
 				recurrence,
 				done: false
 			});
@@ -60,7 +63,7 @@
 
 <form onsubmit={handleSubmit} class="rounded-lg border border-gray-200 bg-white p-6 shadow-sm">
 	<h2 class="mb-4 text-lg font-semibold text-gray-900">Add New Task</h2>
-	
+
 	<div class="space-y-4">
 		<div>
 			<label for="title" class="block text-sm font-medium text-gray-700">Task Title</label>
@@ -124,7 +127,7 @@
 		<button
 			type="submit"
 			disabled={!title.trim() || isLoading}
-			class="w-full rounded-md bg-blue-600 px-4 py-2 text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-gray-300 disabled:cursor-not-allowed"
+			class="w-full rounded-md bg-blue-600 px-4 py-2 text-white shadow-sm hover:bg-blue-700 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:outline-none disabled:cursor-not-allowed disabled:bg-gray-300"
 		>
 			{isLoading ? 'Creating...' : 'Add Task'}
 		</button>

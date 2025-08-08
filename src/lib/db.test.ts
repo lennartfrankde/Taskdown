@@ -58,7 +58,7 @@ describe('Recurring Tasks', () => {
 		expect(allTasks).toHaveLength(2);
 
 		// Find the new task (should be the one that's not done)
-		const newTask = allTasks.find(task => task.id !== taskId);
+		const newTask = allTasks.find((task) => task.id !== taskId);
 		expect(newTask).toBeDefined();
 		expect(newTask?.title).toBe('Daily exercise');
 		expect(newTask?.done).toBe(false);
@@ -82,7 +82,7 @@ describe('Recurring Tasks', () => {
 		const allTasks = await dbService.getTasks();
 		expect(allTasks).toHaveLength(2);
 
-		const newTask = allTasks.find(task => task.id !== taskId);
+		const newTask = allTasks.find((task) => task.id !== taskId);
 		expect(newTask?.date).toBe('2024-01-08'); // Should be next week
 		expect(newTask?.time).toBe('10:00'); // Should preserve time
 	});

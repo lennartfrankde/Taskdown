@@ -1,6 +1,7 @@
 import PocketBase from 'pocketbase';
 import type { Task, Note } from './db';
 import { dbService } from './db';
+import { config } from './config';
 
 // PocketBase record interfaces
 export interface PBTask {
@@ -40,8 +41,11 @@ export class SyncService {
 	};
 	private listeners: ((status: SyncStatus) => void)[] = [];
 
-	constructor(url: string = 'http://localhost:8090') {
-		this.pb = new PocketBase(url);
+	constructor(url?: string) {
+		// Use provided URL or configuration default
+		const pocketbaseUrl = url || config.pocketbaseUrl;
+
+		this.pb = new PocketBase(pocketbaseUrl);
 		this.checkConnection();
 	}
 
@@ -62,7 +66,7 @@ export class SyncService {
 
 	private updateStatus(updates: Partial<SyncStatus>) {
 		this.status = { ...this.status, ...updates };
-		this.listeners.forEach(listener => listener(this.status));
+		this.listeners.forEach((listener) => listener(this.status));
 	}
 
 	private async checkConnection(): Promise<boolean> {
@@ -71,8 +75,8 @@ export class SyncService {
 			this.updateStatus({ isOnline: true, error: undefined });
 			return true;
 		} catch (error) {
-			this.updateStatus({ 
-				isOnline: false, 
+			this.updateStatus({
+				isOnline: false,
 				error: 'PocketBase connection failed'
 			});
 			return false;
@@ -148,23 +152,22 @@ export class SyncService {
 
 			// Try to sync tasks and notes, handle missing collections gracefully
 			await Promise.allSettled([
-				this.syncTasks().catch(error => {
+				this.syncTasks().catch((error) => {
 					console.warn('Tasks sync failed (collections may not exist):', error);
 					// Don't throw - let sync continue
 				}),
-				this.syncNotes().catch(error => {
+				this.syncNotes().catch((error) => {
 					console.warn('Notes sync failed (collections may not exist):', error);
 					// Don't throw - let sync continue
 				})
 			]);
 
-			this.updateStatus({ 
+			this.updateStatus({
 				lastSync: new Date(),
-				error: undefined 
+				error: undefined
 			});
-
 		} catch (error) {
-			this.updateStatus({ 
+			this.updateStatus({
 				error: error instanceof Error ? error.message : 'Sync failed'
 			});
 			throw error;
@@ -176,15 +179,15 @@ export class SyncService {
 	private async syncTasks(): Promise<void> {
 		// Get all local tasks
 		const localTasks = await dbService.getTasks();
-		
+
 		// Get all remote tasks
 		const remoteTasks = await this.pb.collection('tasks').getFullList<PBTask>();
 
 		// Create maps for easier lookup
 		const localByRemoteId = new Map<string, Task>();
 		const localWithoutRemote: Task[] = [];
-		
-		localTasks.forEach(task => {
+
+		localTasks.forEach((task) => {
 			if (task.remoteId) {
 				localByRemoteId.set(task.remoteId, task);
 			} else {
@@ -193,7 +196,7 @@ export class SyncService {
 		});
 
 		const remoteById = new Map<string, PBTask>();
-		remoteTasks.forEach(task => {
+		remoteTasks.forEach((task) => {
 			if (task.id) {
 				remoteById.set(task.id, task);
 			}
@@ -204,7 +207,7 @@ export class SyncService {
 			if (!remoteTask.id) continue;
 
 			const localTask = localByRemoteId.get(remoteTask.id);
-			
+
 			if (localTask) {
 				// Both exist - check which is newer
 				const localUpdated = localTask.updatedAt.getTime();
@@ -232,13 +235,15 @@ export class SyncService {
 		// Upload local-only tasks
 		for (const localTask of localWithoutRemote) {
 			try {
-				const remoteTask = await this.pb.collection('tasks').create<PBTask>(this.taskToRemote(localTask));
-				
+				const remoteTask = await this.pb
+					.collection('tasks')
+					.create<PBTask>(this.taskToRemote(localTask));
+
 				if (remoteTask.id && localTask.id) {
-					await dbService.updateTask(localTask.id, { 
-						remoteId: remoteTask.id, 
-						synced: true, 
-						lastSyncAt: new Date() 
+					await dbService.updateTask(localTask.id, {
+						remoteId: remoteTask.id,
+						synced: true,
+						lastSyncAt: new Date()
 					});
 				}
 			} catch (error) {
@@ -250,15 +255,15 @@ export class SyncService {
 	private async syncNotes(): Promise<void> {
 		// Get all local notes
 		const localNotes = await dbService.getNotes();
-		
+
 		// Get all remote notes
 		const remoteNotes = await this.pb.collection('notes').getFullList<PBNote>();
 
 		// Create maps for easier lookup
 		const localByRemoteId = new Map<string, Note>();
 		const localWithoutRemote: Note[] = [];
-		
-		localNotes.forEach(note => {
+
+		localNotes.forEach((note) => {
 			if (note.remoteId) {
 				localByRemoteId.set(note.remoteId, note);
 			} else {
@@ -267,7 +272,7 @@ export class SyncService {
 		});
 
 		const remoteById = new Map<string, PBNote>();
-		remoteNotes.forEach(note => {
+		remoteNotes.forEach((note) => {
 			if (note.id) {
 				remoteById.set(note.id, note);
 			}
@@ -278,7 +283,7 @@ export class SyncService {
 			if (!remoteNote.id) continue;
 
 			const localNote = localByRemoteId.get(remoteNote.id);
-			
+
 			if (localNote) {
 				// Both exist - check which is newer
 				const localUpdated = localNote.updatedAt.getTime();
@@ -306,13 +311,15 @@ export class SyncService {
 		// Upload local-only notes
 		for (const localNote of localWithoutRemote) {
 			try {
-				const remoteNote = await this.pb.collection('notes').create<PBNote>(this.noteToRemote(localNote));
-				
+				const remoteNote = await this.pb
+					.collection('notes')
+					.create<PBNote>(this.noteToRemote(localNote));
+
 				if (remoteNote.id && localNote.id) {
-					await dbService.updateNote(localNote.id, { 
-						remoteId: remoteNote.id, 
-						synced: true, 
-						lastSyncAt: new Date() 
+					await dbService.updateNote(localNote.id, {
+						remoteId: remoteNote.id,
+						synced: true,
+						lastSyncAt: new Date()
 					});
 				}
 			} catch (error) {
@@ -322,29 +329,32 @@ export class SyncService {
 	}
 
 	private async markTaskSynced(taskId: number): Promise<void> {
-		await dbService.updateTask(taskId, { 
-			synced: true, 
-			lastSyncAt: new Date() 
+		await dbService.updateTask(taskId, {
+			synced: true,
+			lastSyncAt: new Date()
 		});
 	}
 
 	private async markNoteSynced(noteId: number): Promise<void> {
-		await dbService.updateNote(noteId, { 
-			synced: true, 
-			lastSyncAt: new Date() 
+		await dbService.updateNote(noteId, {
+			synced: true,
+			lastSyncAt: new Date()
 		});
 	}
 
 	// Automatic sync
 	startAutoSync(intervalMinutes: number = 5): void {
 		this.stopAutoSync();
-		this.syncInterval = window.setInterval(async () => {
-			try {
-				await this.sync();
-			} catch (error) {
-				console.error('Auto-sync failed:', error);
-			}
-		}, intervalMinutes * 60 * 1000);
+		this.syncInterval = window.setInterval(
+			async () => {
+				try {
+					await this.sync();
+				} catch (error) {
+					console.error('Auto-sync failed:', error);
+				}
+			},
+			intervalMinutes * 60 * 1000
+		);
 	}
 
 	stopAutoSync(): void {
