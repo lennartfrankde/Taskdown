@@ -23,6 +23,7 @@
 		"services:start": "docker-compose -f docker-compose.dev.yml up -d",
 		"services:stop": "docker-compose -f docker-compose.dev.yml down",
 		"services:logs": "docker-compose -f docker-compose.dev.yml logs -f",
+		"pocketbase:setup": "node scripts/setup-pocketbase.js",
 		"dev:setup": "npm run services:start && echo \"🚀 Local services started! Run npm run dev to start development server\"",
 		"dev:teardown": "npm run services:stop",
 		"dev:full": "npm run services:start && npm run dev",
@@ -64,6 +65,7 @@
 	},
 	"dependencies": {
 		"@tauri-apps/api": "^2.7.0",
-		"dexie": "^4.0.11"
+		"dexie": "^4.0.11",
+		"pocketbase": "^0.26.2"
 	}
 }

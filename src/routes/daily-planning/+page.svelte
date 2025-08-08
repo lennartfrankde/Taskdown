@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { dbService, type Task } from '$lib/db';
+	import SyncStatus from '$lib/components/SyncStatus.svelte';
 
 	let previousDayTasks: Task[] = [];
 	let suggestions: Task[] = [];
@@ -97,6 +98,11 @@
 	<div class="mb-6">
 		<h1 class="mb-2 text-3xl font-bold text-gray-900">Tagesplanung</h1>
 		<p class="text-gray-600">Verwalte unerledigte Aufgaben und plane deinen Tag</p>
+	</div>
+
+	<!-- Sync Status -->
+	<div class="mb-6">
+		<SyncStatus />
 	</div>
 
 	{#if error}

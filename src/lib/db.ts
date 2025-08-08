@@ -12,6 +12,10 @@ export interface Task {
 	done: boolean;
 	usageCount?: number;
 	recurrence?: 'none' | 'daily' | 'weekly' | 'custom';
+	// Sync fields
+	remoteId?: string;
+	synced?: boolean;
+	lastSyncAt?: Date;
 }
 
 export interface Note {
@@ -20,6 +24,10 @@ export interface Note {
 	content: string;
 	createdAt: Date;
 	updatedAt: Date;
+	// Sync fields
+	remoteId?: string;
+	synced?: boolean;
+	lastSyncAt?: Date;
 }
 
 export interface Embedding {
@@ -45,28 +53,66 @@ export class TaskdownDB extends Dexie {
 		});
 
 		// Add recurrence field in version 2
-		this.version(2).stores({
-			tasks: '++id, title, date, time, tags, createdAt, updatedAt, done, recurrence',
-			notes: '++id, title, content, createdAt, updatedAt',
-			embeddings: '++id, taskId, noteId, vector'
-		}).upgrade(trans => {
-			// Set default recurrence value for existing tasks
-			return trans.table('tasks').toCollection().modify(task => {
-				task.recurrence = 'none';
+		this.version(2)
+			.stores({
+				tasks: '++id, title, date, time, tags, createdAt, updatedAt, done, recurrence',
+				notes: '++id, title, content, createdAt, updatedAt',
+				embeddings: '++id, taskId, noteId, vector'
+			})
+			.upgrade((trans) => {
+				// Set default recurrence value for existing tasks
+				return trans
+					.table('tasks')
+					.toCollection()
+					.modify((task) => {
+						task.recurrence = 'none';
+					});
 			});
-		});
 
 		// Add usageCount field in version 3
-		this.version(3).stores({
-			tasks: '++id, title, date, time, tags, createdAt, updatedAt, done, recurrence, usageCount',
-			notes: '++id, title, content, createdAt, updatedAt',
-			embeddings: '++id, taskId, noteId, vector'
-		}).upgrade(trans => {
-			// Set default usageCount value for existing tasks
-			return trans.table('tasks').toCollection().modify(task => {
-				task.usageCount = 0;
+		this.version(3)
+			.stores({
+				tasks: '++id, title, date, time, tags, createdAt, updatedAt, done, recurrence, usageCount',
+				notes: '++id, title, content, createdAt, updatedAt',
+				embeddings: '++id, taskId, noteId, vector'
+			})
+			.upgrade((trans) => {
+				// Set default usageCount value for existing tasks
+				return trans
+					.table('tasks')
+					.toCollection()
+					.modify((task) => {
+						task.usageCount = 0;
+					});
 			});
-		});
+
+		// Add sync fields in version 4
+		this.version(4)
+			.stores({
+				tasks:
+					'++id, title, date, time, tags, createdAt, updatedAt, done, recurrence, usageCount, remoteId, synced, lastSyncAt',
+				notes: '++id, title, content, createdAt, updatedAt, remoteId, synced, lastSyncAt',
+				embeddings: '++id, taskId, noteId, vector'
+			})
+			.upgrade((trans) => {
+				// Set default sync values for existing tasks and notes
+				return Promise.all([
+					trans
+						.table('tasks')
+						.toCollection()
+						.modify((task) => {
+							task.synced = false;
+							task.lastSyncAt = null;
+						}),
+					trans
+						.table('notes')
+						.toCollection()
+						.modify((note) => {
+							note.synced = false;
+							note.lastSyncAt = null;
+						})
+				]);
+			});
 	}
 }
 
@@ -85,7 +131,7 @@ export class DatabaseService {
 			createdAt: now,
 			updatedAt: now
 		};
-		return await db.tasks.add(taskWithDefaults) as number;
+		return (await db.tasks.add(taskWithDefaults)) as number;
 	}
 
 	async getTasks(): Promise<Task[]> {
@@ -114,20 +160,20 @@ export class DatabaseService {
 		const task = await this.getTask(id);
 		if (task) {
 			const updates: Partial<Task> = { done: !task.done };
-			
+
 			// Increment usage count when task is completed
 			if (!task.done) {
 				updates.usageCount = (task.usageCount || 0) + 1;
 			}
-			
+
 			// Mark the current task as done
 			const updateResult = await this.updateTask(id, updates);
-			
+
 			// If the task is being marked as done and has recurrence, create a new task
 			if (!task.done && task.recurrence && task.recurrence !== 'none') {
 				await this.createRecurringTask(task);
 			}
-			
+
 			return updateResult;
 		}
 		throw new Error('Task not found');
@@ -166,7 +212,7 @@ export class DatabaseService {
 
 	private async createRecurringTask(originalTask: Task): Promise<void> {
 		const nextDate = this.calculateNextDate(originalTask.date, originalTask.recurrence || 'none');
-		
+
 		await this.createTask({
 			title: originalTask.title,
 			date: nextDate,
@@ -181,11 +227,11 @@ export class DatabaseService {
 	// Note CRUD operations
 	async createNote(note: Omit<Note, 'id' | 'createdAt' | 'updatedAt'>): Promise<number> {
 		const now = new Date();
-		return await db.notes.add({
+		return (await db.notes.add({
 			...note,
 			createdAt: now,
 			updatedAt: now
-		}) as number;
+		})) as number;
 	}
 
 	async getNotes(): Promise<Note[]> {
@@ -212,7 +258,7 @@ export class DatabaseService {
 
 	// Embedding CRUD operations
 	async createEmbedding(embedding: Omit<Embedding, 'id'>): Promise<number> {
-		return await db.embeddings.add(embedding) as number;
+		return (await db.embeddings.add(embedding)) as number;
 	}
 
 	async getEmbeddings(): Promise<Embedding[]> {
