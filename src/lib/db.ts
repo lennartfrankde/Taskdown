@@ -10,7 +10,8 @@ export interface Task {
 	createdAt: Date;
 	updatedAt: Date;
 	done: boolean;
-	recurrence: 'none' | 'daily' | 'weekly' | 'custom';
+	usageCount?: number;
+	recurrence?: 'none' | 'daily' | 'weekly' | 'custom';
 }
 
 export interface Note {
@@ -54,6 +55,18 @@ export class TaskdownDB extends Dexie {
 				task.recurrence = 'none';
 			});
 		});
+
+		// Add usageCount field in version 3
+		this.version(3).stores({
+			tasks: '++id, title, date, time, tags, createdAt, updatedAt, done, recurrence, usageCount',
+			notes: '++id, title, content, createdAt, updatedAt',
+			embeddings: '++id, taskId, noteId, vector'
+		}).upgrade(trans => {
+			// Set default usageCount value for existing tasks
+			return trans.table('tasks').toCollection().modify(task => {
+				task.usageCount = 0;
+			});
+		});
 	}
 }
 
@@ -67,6 +80,7 @@ export class DatabaseService {
 		const now = new Date();
 		const taskWithDefaults = {
 			...task,
+			usageCount: task.usageCount || 0,
 			recurrence: task.recurrence || 'none',
 			createdAt: now,
 			updatedAt: now
@@ -99,11 +113,18 @@ export class DatabaseService {
 	async toggleTaskDone(id: number): Promise<number> {
 		const task = await this.getTask(id);
 		if (task) {
+			const updates: Partial<Task> = { done: !task.done };
+			
+			// Increment usage count when task is completed
+			if (!task.done) {
+				updates.usageCount = (task.usageCount || 0) + 1;
+			}
+			
 			// Mark the current task as done
-			const updateResult = await this.updateTask(id, { done: !task.done });
+			const updateResult = await this.updateTask(id, updates);
 			
 			// If the task is being marked as done and has recurrence, create a new task
-			if (!task.done && task.recurrence !== 'none') {
+			if (!task.done && task.recurrence && task.recurrence !== 'none') {
 				await this.createRecurringTask(task);
 			}
 			
@@ -144,14 +165,15 @@ export class DatabaseService {
 	}
 
 	private async createRecurringTask(originalTask: Task): Promise<void> {
-		const nextDate = this.calculateNextDate(originalTask.date, originalTask.recurrence);
+		const nextDate = this.calculateNextDate(originalTask.date, originalTask.recurrence || 'none');
 		
 		await this.createTask({
 			title: originalTask.title,
 			date: nextDate,
 			time: originalTask.time,
 			tags: [...originalTask.tags],
-			recurrence: originalTask.recurrence,
+			recurrence: originalTask.recurrence || 'none',
+			usageCount: 0,
 			done: false
 		});
 	}
@@ -231,6 +253,55 @@ export class DatabaseService {
 					note.content.toLowerCase().includes(searchTerm)
 			)
 			.toArray();
+	}
+
+	// Daily Planning specific methods
+	async getUncompletedTasksFromDate(date: Date): Promise<Task[]> {
+		const dateString = date.toISOString().split('T')[0];
+		return await db.tasks.filter((task) => !task.done && task.date === dateString).toArray();
+	}
+
+	async getUncompletedTasksFromPreviousDays(): Promise<Task[]> {
+		const today = new Date();
+		const todayString = today.toISOString().split('T')[0];
+
+		return await db.tasks
+			.filter((task) => !task.done && task.date != null && task.date < todayString)
+			.toArray();
+	}
+
+	async getTaskSuggestionsByUsage(limit: number = 5): Promise<Task[]> {
+		return await db.tasks
+			.orderBy('usageCount')
+			.reverse()
+			.filter((task) => (task.usageCount || 0) > 0)
+			.limit(limit)
+			.toArray();
+	}
+
+	async rescheduleTaskToToday(id: number): Promise<number> {
+		const today = new Date().toISOString().split('T')[0];
+		const task = await this.getTask(id);
+		if (task) {
+			const updates: Partial<Task> = {
+				date: today,
+				usageCount: (task.usageCount || 0) + 1
+			};
+			return await this.updateTask(id, updates);
+		}
+		throw new Error('Task not found');
+	}
+
+	async rescheduleTaskToDate(id: number, newDate: string): Promise<number> {
+		const task = await this.getTask(id);
+		if (task) {
+			const updates: Partial<Task> = {
+				date: newDate,
+				usageCount: (task.usageCount || 0) + 1
+			};
+			return await this.updateTask(id, updates);
+		}
+		throw new Error('Task not found');
 	}
 }
 

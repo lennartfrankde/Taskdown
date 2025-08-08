@@ -25,7 +25,8 @@
 					title: 'Welcome to Taskdown! This is a sample task.',
 					tags: ['sample'],
 					done: false,
-					recurrence: 'none'
+					recurrence: 'none',
+					usageCount: 0
 				});
 			}
 
@@ -45,6 +46,10 @@
 		loadTasks();
 	}
 </script>
+
+<svelte:head>
+	<title>Taskdown - Task Management</title>
+</svelte:head>
 
 <div class="min-h-screen bg-gray-50 p-4">
 	<div class="mx-auto max-w-4xl">
@@ -66,6 +71,21 @@
 						<p class="text-sm font-medium text-green-800">{dbStatus}</p>
 					</div>
 				</div>
+			</div>
+
+			<!-- Daily Planning Promotion -->
+			<div class="rounded-lg border border-blue-200 bg-blue-50 p-6">
+				<h3 class="mb-2 text-lg font-semibold text-blue-900">🗓️ Neu: Tagesplanung</h3>
+				<p class="mb-4 text-blue-800">
+					Verwalte unerledigte Aufgaben von vorherigen Tagen und erhalte intelligente Vorschläge
+					basierend auf deiner Nutzung.
+				</p>
+				<a
+					href="/daily-planning"
+					class="inline-block rounded bg-blue-600 px-4 py-2 text-white transition-colors hover:bg-blue-700"
+				>
+					Zur Tagesplanung →
+				</a>
 			</div>
 
 			<!-- Quick Add Form -->
