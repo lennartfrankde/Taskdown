@@ -8,8 +8,15 @@ on:
 
 jobs:
   deploy-preview:
-    if: github.event.action != 'closed'
     runs-on: ubuntu-latest
+    if: github.event.action != 'closed'
+
+    env:
+      COOLIFY_API_URL: ${{ secrets.COOLIFY_API_URL }}
+      COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+      COOLIFY_PROJECT_ID: ${{ secrets.COOLIFY_PROJECT_ID }}
+      REGISTRY: registry.serverfrank.de
+      PR_NUMBER: ${{ github.event.number }}
 
     steps:
       - uses: actions/checkout@v4
@@ -24,55 +31,48 @@ jobs:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and push PR Docker image
+      - name: Build and push PR image
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: ${{ secrets.DOCKER_REGISTRY }}/taskdown:pr-${{ github.event.number }}
+          tags: ${{ env.REGISTRY }}/taskdown:pr-${{ env.PR_NUMBER }}
 
-      - name: Deploy preview on Coolify
-        env:
-          COOLIFY_API_URL: ${{ secrets.COOLIFY_API_URL }}
-          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
-          COOLIFY_PROJECT_ID: ${{ secrets.COOLIFY_PROJECT_ID }}
-          REGISTRY: ${{ secrets.DOCKER_REGISTRY }}
-          PR_NUMBER: ${{ github.event.number }}
+      - name: Deploy or update preview app in Coolify
         run: |
           set -euo pipefail
-
           PREVIEW_NAME="taskdown-pr-${PR_NUMBER}"
           IMAGE_TAG="pr-${PR_NUMBER}"
           IMAGE="${REGISTRY}/taskdown:${IMAGE_TAG}"
 
-          echo "Fetching existing services for project ${COOLIFY_PROJECT_ID}..."
-          SERVICES=$(curl -s -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
-            "${COOLIFY_API_URL}/api/v1/projects/${COOLIFY_PROJECT_ID}/services")
+          echo "Fetching existing dockerimage applications for project..."
+          APPS=$(curl -s -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+            "${COOLIFY_API_URL}/api/v1/projects/${COOLIFY_PROJECT_ID}/dockerimage-applications")
 
-          echo "Response from Coolify:"
-          echo "$SERVICES"
+          echo "Applications response:"
+          echo "$APPS"
 
-          SERVICE_ID=$(echo "$SERVICES" | jq -r --arg name "$PREVIEW_NAME" '.[] | select(.name==$name) | .id // empty')
+          APP_ID=$(echo "$APPS" | jq -r --arg name "$PREVIEW_NAME" '.[] | select(.name==$name) | .id // empty')
 
-          if [ -z "$SERVICE_ID" ]; then
-            echo "Creating new Coolify preview service: $PREVIEW_NAME"
-            SERVICE_ID=$(curl -s -X POST "${COOLIFY_API_URL}/api/v1/services" \
+          if [ -z "$APP_ID" ]; then
+            echo "Creating new Coolify Docker Image Application: $PREVIEW_NAME"
+            APP_ID=$(curl -s -X POST "${COOLIFY_API_URL}/api/v1/dockerimage-applications" \
               -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
               -H "Content-Type: application/json" \
-              -d "{\"name\":\"${PREVIEW_NAME}\",\"image\":\"${IMAGE}\",\"type\":\"service\",\"preview\":true,\"forcePullImage\":true}" | jq -r '.id')
+              -d "{\"name\":\"${PREVIEW_NAME}\",\"image\":\"${IMAGE}\",\"preview\":true,\"forcePullImage\":true,\"projectId\":\"${COOLIFY_PROJECT_ID}\"}" | jq -r '.id')
           else
-            echo "Updating existing Coolify preview service: $PREVIEW_NAME"
-            curl -s -X PATCH "${COOLIFY_API_URL}/api/v1/services/${SERVICE_ID}" \
+            echo "Updating existing Coolify Docker Image Application: $PREVIEW_NAME"
+            curl -s -X PATCH "${COOLIFY_API_URL}/api/v1/dockerimage-applications/${APP_ID}" \
               -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
               -H "Content-Type: application/json" \
               -d "{\"image\":\"${IMAGE}\",\"preview\":true,\"forcePullImage\":true}"
           fi
 
-          echo "Triggering deployment for service $SERVICE_ID with tag $IMAGE_TAG"
-          curl -s -X POST "${COOLIFY_API_URL}/api/v1/services/deploy" \
+          echo "Trigger deployment for application $APP_ID with tag $IMAGE_TAG"
+          curl -s -X POST "${COOLIFY_API_URL}/api/v1/dockerimage-applications/deploy" \
             -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
             -H "Content-Type: application/json" \
-            -d "{\"serviceId\":\"${SERVICE_ID}\",\"tag\":\"${IMAGE_TAG}\"}"
+            -d "{\"applicationId\":\"${APP_ID}\",\"tag\":\"${IMAGE_TAG}\"}"
 
       - name: Comment PR with preview URL
         uses: actions/github-script@v7
@@ -82,33 +82,36 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `🚀 Preview deployment created! Access it at: https://pr-${context.issue.number}.serverfrank.de`
+              body: `🚀 Preview deployment created! View it at: https://pr-${context.issue.number}.your-domain.com`
             })
 
   cleanup-preview:
-    if: github.event.action == 'closed'
     runs-on: ubuntu-latest
+    if: github.event.action == 'closed'
+
+    env:
+      COOLIFY_API_URL: ${{ secrets.COOLIFY_API_URL }}
+      COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+      PR_NUMBER: ${{ github.event.number }}
 
     steps:
-      - name: Delete Coolify preview service
-        env:
-          COOLIFY_API_URL: ${{ secrets.COOLIFY_API_URL }}
-          COOLIFY_TOKEN: ${{ secrets.COOLIFY_TOKEN }}
-          PR_NUMBER: ${{ github.event.number }}
+      - name: Delete preview app from Coolify
         run: |
           set -euo pipefail
+          PREVIEW_NAME="taskdown-pr-${PR_NUMBER}"
 
-          SERVICE_NAME="taskdown-pr-${PR_NUMBER}"
+          # Fetch app ID to delete
+          APPS=$(curl -s -H "Authorization: Bearer ${COOLIFY_TOKEN}" \
+            "${COOLIFY_API_URL}/api/v1/projects/${{ secrets.COOLIFY_PROJECT_ID }}/dockerimage-applications")
 
-          echo "Fetching service ID for $SERVICE_NAME"
-          SERVICES=$(curl -s -H "Authorization: Bearer ${COOLIFY_TOKEN}" "${COOLIFY_API_URL}/api/v1/services")
-          SERVICE_ID=$(echo "$SERVICES" | jq -r --arg name "$SERVICE_NAME" '.[] | select(.name==$name) | .id // empty')
+          APP_ID=$(echo "$APPS" | jq -r --arg name "$PREVIEW_NAME" '.[] | select(.name==$name) | .id // empty')
 
-          if [ -n "$SERVICE_ID" ]; then
-            echo "Deleting Coolify preview service: $SERVICE_NAME (ID: $SERVICE_ID)"
-            curl -s -X DELETE "${COOLIFY_API_URL}/api/v1/services/${SERVICE_ID}" -H "Authorization: Bearer ${COOLIFY_TOKEN}"
+          if [ -n "$APP_ID" ]; then
+            echo "Deleting Coolify Docker Image Application: $PREVIEW_NAME (ID: $APP_ID)"
+            curl -s -X DELETE "${COOLIFY_API_URL}/api/v1/dockerimage-applications/${APP_ID}" \
+              -H "Authorization: Bearer ${COOLIFY_TOKEN}"
           else
-            echo "No Coolify preview service found for $SERVICE_NAME. Nothing to delete."
+            echo "No Coolify Docker Image Application found for deletion."
           fi
 
       - name: Comment PR about cleanup
@@ -119,5 +122,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '🧹 Preview deployment cleaned up after PR closure.'
+              body: '🧹 PR preview deployment cleaned up.'
             })
