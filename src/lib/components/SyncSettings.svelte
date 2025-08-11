@@ -1,21 +1,24 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { settingsService, type SyncMode, type UserSettings } from '$lib/settings';
+	import { settingsService, type UserSettings } from '$lib/settings';
 	import { authService, type AuthStatus } from '$lib/auth';
 
 	let settings: UserSettings = $state(settingsService.getSettings());
 	let authStatus: AuthStatus = $state(authService.getAuthStatus());
 	let showModal = $state(false);
-	let currentTab: 'plans' | 'login' | 'register' = $state('plans');
-	let customUrl = $state('');
+	let currentTab: 'settings' | 'login' | 'register' = $state('settings');
 
 	// Form states
 	let loginForm = $state({ email: '', password: '' });
 	let registerForm = $state({ email: '', password: '', passwordConfirm: '', username: '' });
+	let pocketbaseUrl = $state('');
 
 	onMount(() => {
+		pocketbaseUrl = settings.pocketbaseUrl;
+		
 		const unsubscribeSettings = settingsService.onSettingsChange((newSettings) => {
 			settings = newSettings;
+			pocketbaseUrl = newSettings.pocketbaseUrl;
 		});
 
 		const unsubscribeAuth = authService.onAuthChange((newStatus) => {
@@ -30,40 +33,33 @@
 
 	function openSettings() {
 		showModal = true;
-		currentTab = 'plans';
-		if (settings.syncMode === 'custom-backend') {
-			customUrl = settings.customBackendUrl || '';
-		}
+		currentTab = 'settings';
 	}
 
 	function closeModal() {
 		showModal = false;
-		currentTab = 'plans';
+		currentTab = 'settings';
 	}
 
-	function selectSyncMode(mode: SyncMode) {
-		if (mode === 'custom-backend') {
-			// Show custom URL input
-			currentTab = 'plans';
-		} else if (mode === 'official-backend') {
-			// Need authentication for sync modes
-			settingsService.updateSettings({ syncMode: mode });
-			currentTab = 'login';
-		} else if (mode === 'custom-backend') {
-			// Need authentication for sync modes with custom backend
-			settingsService.updateSettings({ syncMode: mode });
-			if (customUrl) {
-				settingsService.updateSettings({ customBackendUrl: customUrl });
-			}
-			currentTab = 'login';
-		} else {
-			// Local only mode
-			settingsService.updateSettings({ syncMode: mode });
+	function toggleSync() {
+		if (settings.syncEnabled) {
+			// Disable sync and logout
 			if (authStatus.isAuthenticated) {
 				authService.logout();
 			}
-			closeModal();
+			settingsService.updateSettings({ syncEnabled: false });
+		} else {
+			// Enable sync
+			settingsService.updateSettings({ 
+				syncEnabled: true,
+				pocketbaseUrl: pocketbaseUrl 
+			});
+			// Don't auto-navigate to login, let user choose
 		}
+	}
+
+	function updatePocketbaseUrl() {
+		settingsService.updateSettings({ pocketbaseUrl: pocketbaseUrl });
 	}
 
 	async function handleLogin(event: Event) {
@@ -91,36 +87,17 @@
 		closeModal();
 	}
 
-	function updateCustomUrl() {
-		if (customUrl) {
-			settingsService.updateSettings({ 
-				syncMode: 'custom-backend',
-				customBackendUrl: customUrl 
-			});
-		}
+	function getSyncIcon(): string {
+		if (!settings.syncEnabled) return '📱';
+		if (authStatus.isAuthenticated) return '☁️';
+		return '🔒';
 	}
 
-	function getSyncModeIcon(mode: SyncMode): string {
-		switch (mode) {
-			case 'local-only': return '📱';
-			case 'custom-backend': return '🏠';
-			case 'official-backend': return '☁️';
-		}
+	function getSyncStatusText(): string {
+		if (!settings.syncEnabled) return 'Nur Lokal';
+		if (authStatus.isAuthenticated) return 'Synchronisiert';
+		return 'Anmeldung erforderlich';
 	}
-
-	function getSyncModeColor(mode: SyncMode): string {
-		switch (mode) {
-			case 'local-only': return 'border-gray-200 bg-gray-50';
-			case 'custom-backend': return 'border-blue-200 bg-blue-50';
-			case 'official-backend': return 'border-purple-200 bg-purple-50';
-		}
-	}
-
-	function isCurrentMode(mode: SyncMode): boolean {
-		return settings.syncMode === mode;
-	}
-
-	const plans = settingsService.getSyncPlans();
 </script>
 
 <!-- Settings Button -->
@@ -128,21 +105,23 @@
 	onclick={openSettings}
 	class="flex items-center space-x-2 rounded-lg bg-white px-3 py-2 text-sm border border-gray-200 hover:bg-gray-50 transition-colors"
 	title="Sync-Einstellungen"
+	aria-label="Sync-Einstellungen öffnen"
 >
-	<span>{getSyncModeIcon(settings.syncMode)}</span>
-	<span class="hidden sm:inline">Sync-Einstellungen</span>
+	<span>{getSyncIcon()}</span>
+	<span class="hidden sm:inline">{getSyncStatusText()}</span>
 </button>
 
 <!-- Settings Modal -->
 {#if showModal}
 	<div class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-		<div class="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-white rounded-lg shadow-xl m-4">
+		<div class="w-full max-w-lg max-h-[90vh] overflow-y-auto bg-white rounded-lg shadow-xl m-4">
 			<div class="border-b border-gray-200 p-6">
 				<div class="flex items-center justify-between">
-					<h2 class="text-xl font-semibold text-gray-900">Synchronisations-Einstellungen</h2>
+					<h2 class="text-xl font-semibold text-gray-900">Sync-Einstellungen</h2>
 					<button
 						onclick={closeModal}
 						class="text-gray-400 hover:text-gray-600"
+						aria-label="Schließen"
 					>
 						<svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -152,95 +131,94 @@
 			</div>
 
 			<div class="p-6">
-				{#if currentTab === 'plans'}
-					<div class="space-y-4">
-						<p class="text-gray-600 mb-6">
-							Wählen Sie, wie Ihre Daten synchronisiert werden sollen:
-						</p>
+				{#if currentTab === 'settings'}
+					<div class="space-y-6">
+						<div>
+							<label class="flex items-center space-x-3">
+								<input
+									type="checkbox"
+									checked={settings.syncEnabled}
+									onchange={toggleSync}
+									class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+								/>
+								<span class="text-sm font-medium text-gray-900">
+									Synchronisierung aktivieren
+								</span>
+							</label>
+							<p class="text-sm text-gray-600 mt-1 ml-7">
+								Synchronisiert Ihre Daten mit einem PocketBase-Server
+							</p>
+						</div>
 
-						{#each Object.entries(plans) as [mode, plan]}
-							<div class={`rounded-lg border-2 p-4 cursor-pointer transition-all ${
-								isCurrentMode(mode as SyncMode) 
-									? 'border-blue-500 bg-blue-50' 
-									: getSyncModeColor(mode as SyncMode)
-							} ${plan.isRecommended ? 'ring-2 ring-purple-300' : ''}`}
-								onclick={() => selectSyncMode(mode as SyncMode)}
-							>
-								<div class="flex items-start justify-between">
-									<div class="flex items-center space-x-3">
-										<span class="text-2xl">{getSyncModeIcon(mode as SyncMode)}</span>
-										<div>
-											<h3 class="font-semibold text-gray-900 flex items-center space-x-2">
-												<span>{plan.name}</span>
-												{#if plan.isRecommended}
-													<span class="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded-full">
-														Empfohlen
-													</span>
-												{/if}
-											</h3>
-											<p class="text-sm text-gray-600 mt-1">{plan.description}</p>
-										</div>
-									</div>
-									{#if plan.price}
-										<span class="text-sm font-medium text-gray-900">{plan.price}</span>
-									{/if}
-								</div>
-
-								<ul class="mt-3 space-y-1">
-									{#each plan.features as feature}
-										<li class="text-sm text-gray-600 flex items-center space-x-2">
-											<svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-												<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-											</svg>
-											<span>{feature}</span>
-										</li>
-									{/each}
-								</ul>
-
-								{#if mode === 'custom-backend'}
-									<div class="mt-4">
-										<label class="block text-sm font-medium text-gray-700 mb-2">
-											PocketBase Server URL
-										</label>
-										<input
-											type="url"
-											bind:value={customUrl}
-											placeholder="http://localhost:8090"
-											class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-											onclick={(e) => e.stopPropagation()}
-											onblur={updateCustomUrl}
-										/>
-									</div>
-								{/if}
-							</div>
-						{/each}
-
-						{#if settings.syncMode !== 'local-only' && !authStatus.isAuthenticated}
-							<div class="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-								<p class="text-sm text-yellow-800">
-									<strong>Anmeldung erforderlich:</strong> 
-									Für die Synchronisierung müssen Sie sich anmelden oder registrieren.
+						{#if settings.syncEnabled}
+							<div>
+								<label for="pocketbase-url" class="block text-sm font-medium text-gray-700 mb-2">
+									PocketBase Server URL
+								</label>
+								<input
+									id="pocketbase-url"
+									type="url"
+									bind:value={pocketbaseUrl}
+									placeholder="http://localhost:8090"
+									class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+									onblur={updatePocketbaseUrl}
+								/>
+								<p class="text-xs text-gray-500 mt-1">
+									URL Ihres PocketBase-Servers
 								</p>
 							</div>
-						{/if}
 
-						{#if authStatus.isAuthenticated}
-							<div class="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
-								<div class="flex items-center justify-between">
+							{#if !authStatus.isAuthenticated}
+								<div class="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+									<p class="text-sm text-yellow-800">
+										<strong>Anmeldung erforderlich:</strong> 
+										Sie müssen sich anmelden, um die Synchronisierung zu nutzen.
+									</p>
+									<div class="mt-3 flex space-x-2">
+										<button
+											onclick={() => currentTab = 'login'}
+											class="text-sm bg-yellow-100 text-yellow-800 px-3 py-1 rounded hover:bg-yellow-200"
+										>
+											Anmelden
+										</button>
+										<button
+											onclick={() => currentTab = 'register'}
+											class="text-sm bg-yellow-100 text-yellow-800 px-3 py-1 rounded hover:bg-yellow-200"
+										>
+											Registrieren
+										</button>
+									</div>
+								</div>
+							{:else}
+								<div class="p-4 bg-green-50 border border-green-200 rounded-lg">
+									<div class="flex items-center justify-between">
+										<div>
+											<p class="text-sm text-green-800">
+												<strong>Angemeldet als:</strong> {authStatus.user?.email}
+											</p>
+											<p class="text-xs text-green-600 mt-1">
+												Synchronisierung aktiv
+											</p>
+										</div>
+										<button
+											onclick={handleLogout}
+											class="text-sm text-green-700 hover:text-green-900 underline"
+										>
+											Abmelden
+										</button>
+									</div>
+								</div>
+							{/if}
+						{:else}
+							<div class="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+								<div class="flex items-center space-x-3">
+									<span class="text-2xl">📱</span>
 									<div>
-										<p class="text-sm text-green-800">
-											<strong>Angemeldet als:</strong> {authStatus.user?.email}
-										</p>
-										<p class="text-xs text-green-600 mt-1">
-											Sync-Modus: {plans[settings.syncMode].name}
+										<h3 class="font-medium text-gray-900">Nur Lokal</h3>
+										<p class="text-sm text-gray-600">
+											Alle Daten bleiben auf Ihrem Gerät gespeichert
 										</p>
 									</div>
-									<button
-										onclick={handleLogout}
-										class="text-sm text-green-700 hover:text-green-900 underline"
-									>
-										Abmelden
-									</button>
 								</div>
 							</div>
 						{/if}
@@ -263,10 +241,11 @@
 
 						<form onsubmit={handleLogin} class="space-y-4">
 							<div>
-								<label class="block text-sm font-medium text-gray-700 mb-1">
+								<label for="login-email" class="block text-sm font-medium text-gray-700 mb-1">
 									E-Mail
 								</label>
 								<input
+									id="login-email"
 									type="email"
 									bind:value={loginForm.email}
 									required
@@ -275,10 +254,11 @@
 							</div>
 
 							<div>
-								<label class="block text-sm font-medium text-gray-700 mb-1">
+								<label for="login-password" class="block text-sm font-medium text-gray-700 mb-1">
 									Passwort
 								</label>
 								<input
+									id="login-password"
 									type="password"
 									bind:value={loginForm.password}
 									required
@@ -306,10 +286,10 @@
 
 						<div class="text-center">
 							<button
-								onclick={() => currentTab = 'plans'}
+								onclick={() => currentTab = 'settings'}
 								class="text-sm text-gray-500 hover:text-gray-700"
 							>
-								← Zurück zur Auswahl
+								← Zurück zu den Einstellungen
 							</button>
 						</div>
 					</div>
@@ -331,10 +311,11 @@
 
 						<form onsubmit={handleRegister} class="space-y-4">
 							<div>
-								<label class="block text-sm font-medium text-gray-700 mb-1">
+								<label for="register-email" class="block text-sm font-medium text-gray-700 mb-1">
 									E-Mail
 								</label>
 								<input
+									id="register-email"
 									type="email"
 									bind:value={registerForm.email}
 									required
@@ -343,10 +324,11 @@
 							</div>
 
 							<div>
-								<label class="block text-sm font-medium text-gray-700 mb-1">
+								<label for="register-username" class="block text-sm font-medium text-gray-700 mb-1">
 									Benutzername (optional)
 								</label>
 								<input
+									id="register-username"
 									type="text"
 									bind:value={registerForm.username}
 									class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -354,10 +336,11 @@
 							</div>
 
 							<div>
-								<label class="block text-sm font-medium text-gray-700 mb-1">
+								<label for="register-password" class="block text-sm font-medium text-gray-700 mb-1">
 									Passwort
 								</label>
 								<input
+									id="register-password"
 									type="password"
 									bind:value={registerForm.password}
 									required
@@ -367,10 +350,11 @@
 							</div>
 
 							<div>
-								<label class="block text-sm font-medium text-gray-700 mb-1">
+								<label for="register-password-confirm" class="block text-sm font-medium text-gray-700 mb-1">
 									Passwort bestätigen
 								</label>
 								<input
+									id="register-password-confirm"
 									type="password"
 									bind:value={registerForm.passwordConfirm}
 									required
@@ -399,10 +383,10 @@
 
 						<div class="text-center">
 							<button
-								onclick={() => currentTab = 'plans'}
+								onclick={() => currentTab = 'settings'}
 								class="text-sm text-gray-500 hover:text-gray-700"
 							>
-								← Zurück zur Auswahl
+								← Zurück zu den Einstellungen
 							</button>
 						</div>
 					</div>

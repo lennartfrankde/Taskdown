@@ -51,10 +51,8 @@ class AuthService {
 	}
 
 	private initializePocketBase(settings: UserSettings): void {
-		const syncUrl = settingsService.getSyncUrl();
-		
-		if (syncUrl && settings.syncMode !== 'local-only') {
-			this.pb = new PocketBase(syncUrl);
+		if (settings.syncEnabled && settings.pocketbaseUrl) {
+			this.pb = new PocketBase(settings.pocketbaseUrl);
 			
 			// Check if user is already authenticated
 			if (this.pb.authStore.isValid && this.pb.authStore.model) {
@@ -113,7 +111,7 @@ class AuthService {
 	// Authentication methods
 	async login(credentials: LoginCredentials): Promise<AuthUser> {
 		if (!this.pb) {
-			throw new Error('PocketBase not initialized. Please select a sync backend first.');
+			throw new Error('PocketBase not initialized. Please configure PocketBase URL and enable sync first.');
 		}
 
 		try {
@@ -161,7 +159,7 @@ class AuthService {
 
 	async register(credentials: RegisterCredentials): Promise<AuthUser> {
 		if (!this.pb) {
-			throw new Error('PocketBase not initialized. Please select a sync backend first.');
+			throw new Error('PocketBase not initialized. Please configure PocketBase URL and enable sync first.');
 		}
 
 		try {
@@ -310,7 +308,7 @@ class AuthService {
 
 	isReady(): boolean {
 		const settings = settingsService.getSettings();
-		return settings.syncMode === 'local-only' || this.pb !== null;
+		return !settings.syncEnabled || this.pb !== null;
 	}
 
 	requiresAuthentication(): boolean {

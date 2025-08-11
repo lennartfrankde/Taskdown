@@ -76,8 +76,7 @@
 
 	function getSyncModeInfo(): string {
 		const settings = settingsService.getSettings();
-		const plans = settingsService.getSyncPlans();
-		return plans[settings.syncMode].name;
+		return settings.syncEnabled ? 'PocketBase Sync' : 'Nur Lokal';
 	}
 </script>
 
