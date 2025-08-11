@@ -12,13 +12,13 @@ function getPocketBaseUrl(): string {
 		return 'http://localhost:8090';
 	}
 
-	// Production default (can be overridden at runtime)
-	return 'https://pocketbase.taskdown.app';
+	// Production default - can be overridden via user settings
+	return 'http://localhost:8090';
 }
 
 export const config = {
-	// PocketBase URL - configurable via environment variables or runtime configuration
-	get pocketbaseUrl() {
+	// Default PocketBase URL - users can override this in settings
+	get defaultPocketbaseUrl() {
 		return getPocketBaseUrl();
 	}
 };

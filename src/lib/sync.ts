@@ -63,9 +63,8 @@ export class SyncService {
 
 	private initializeSync(): void {
 		const settings = settingsService.getSettings();
-		const syncUrl = settingsService.getSyncUrl();
 
-		if (settings.syncMode === 'local-only') {
+		if (!settings.syncEnabled) {
 			this.pb = null;
 			this.updateStatus({
 				isEnabled: false,
@@ -73,7 +72,7 @@ export class SyncService {
 				isOnline: false
 			});
 			this.stopAutoSync();
-		} else if (syncUrl) {
+		} else if (settings.pocketbaseUrl) {
 			this.pb = authService.getPocketBase();
 			this.updateStatus({
 				isEnabled: true,
@@ -87,7 +86,7 @@ export class SyncService {
 		const authStatus = authService.getAuthStatus();
 		const settings = settingsService.getSettings();
 		
-		if (settings.syncMode === 'local-only') {
+		if (!settings.syncEnabled) {
 			this.updateStatus({
 				isEnabled: false,
 				requiresAuth: false,
@@ -207,7 +206,7 @@ export class SyncService {
 		}
 
 		const settings = settingsService.getSettings();
-		if (settings.syncMode === 'local-only') {
+		if (!settings.syncEnabled) {
 			return; // No sync needed
 		}
 
@@ -429,8 +428,8 @@ export class SyncService {
 		this.stopAutoSync();
 		
 		const settings = settingsService.getSettings();
-		if (settings.syncMode === 'local-only') {
-			return; // No auto-sync for local-only mode
+		if (!settings.syncEnabled) {
+			return; // No auto-sync when sync is disabled
 		}
 		
 		this.syncInterval = window.setInterval(

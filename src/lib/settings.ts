@@ -1,10 +1,8 @@
 // Settings service for managing user preferences and sync configuration
 
-export type SyncMode = 'local-only' | 'custom-backend' | 'official-backend';
-
 export interface UserSettings {
-	syncMode: SyncMode;
-	customBackendUrl?: string;
+	syncEnabled: boolean;
+	pocketbaseUrl: string;
 	userId?: string;
 	email?: string;
 	username?: string;
@@ -12,52 +10,10 @@ export interface UserSettings {
 	lastLoginAt?: Date;
 }
 
-export interface SyncPlan {
-	name: string;
-	description: string;
-	features: string[];
-	price?: string;
-	isRecommended?: boolean;
-}
-
 const DEFAULT_SETTINGS: UserSettings = {
-	syncMode: 'local-only',
+	syncEnabled: false,
+	pocketbaseUrl: 'http://localhost:8090',
 	isAuthenticated: false
-};
-
-const SYNC_PLANS: Record<SyncMode, SyncPlan> = {
-	'local-only': {
-		name: 'Nur Lokal',
-		description: 'Alle Daten bleiben auf Ihrem Gerät gespeichert.',
-		features: [
-			'Vollständige Offline-Funktionalität',
-			'Keine Internetverbindung erforderlich',
-			'Maximaler Datenschutz',
-			'Kostenlos'
-		]
-	},
-	'custom-backend': {
-		name: 'Eigener Server',
-		description: 'Synchronisierung mit Ihrem eigenen PocketBase-Server.',
-		features: [
-			'Vollständige Kontrolle über Ihre Daten',
-			'Synchronisierung zwischen Geräten',
-			'Eigene Server-Konfiguration',
-			'Kostenlos (eigene Infrastruktur)'
-		]
-	},
-	'official-backend': {
-		name: 'Taskdown Cloud',
-		description: 'Verwaltete Synchronisierung über unsere offizielle Cloud.',
-		features: [
-			'Einfache Einrichtung',
-			'Automatische Backups',
-			'Sichere Synchronisierung',
-			'Premium Support'
-		],
-		price: 'Kostenlos (Beta)',
-		isRecommended: true
-	}
 };
 
 class SettingsService {
@@ -144,29 +100,11 @@ class SettingsService {
 	}
 
 	requiresAuth(): boolean {
-		return this.settings.syncMode !== 'local-only';
+		return this.settings.syncEnabled;
 	}
 
 	getSyncUrl(): string | null {
-		switch (this.settings.syncMode) {
-			case 'local-only':
-				return null;
-			case 'custom-backend':
-				return this.settings.customBackendUrl || null;
-			case 'official-backend':
-				return 'https://pocketbase.taskdown.app';
-			default:
-				return null;
-		}
-	}
-
-	// Plan management
-	getSyncPlans(): Record<SyncMode, SyncPlan> {
-		return SYNC_PLANS;
-	}
-
-	getCurrentPlan(): SyncPlan {
-		return SYNC_PLANS[this.settings.syncMode];
+		return this.settings.syncEnabled ? this.settings.pocketbaseUrl : null;
 	}
 
 	// User management
@@ -197,14 +135,21 @@ class SettingsService {
 			return;
 		}
 
-		// If user was using sync before, migrate them to custom backend
-		// This preserves backward compatibility
-		const wasUsingSyncBefore = localStorage.getItem('pocketbase-last-sync');
-		if (wasUsingSyncBefore && this.settings.syncMode === 'local-only') {
-			this.updateSettings({
-				syncMode: 'custom-backend',
-				customBackendUrl: 'http://localhost:8090'
-			});
+		// Migrate from old sync mode system
+		const legacySettings = localStorage.getItem('taskdown-settings');
+		if (legacySettings) {
+			try {
+				const parsed = JSON.parse(legacySettings);
+				// If user had any sync mode other than local-only, enable sync
+				if (parsed.syncMode && parsed.syncMode !== 'local-only') {
+					this.updateSettings({
+						syncEnabled: true,
+						pocketbaseUrl: parsed.customBackendUrl || 'http://localhost:8090'
+					});
+				}
+			} catch (error) {
+				console.warn('Failed to migrate legacy settings:', error);
+			}
 		}
 	}
 }
